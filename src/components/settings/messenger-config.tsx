@@ -73,6 +73,18 @@ export function MessengerConfig() {
       toast.error('Paste your Page Access Token');
       return;
     }
+    if (!tokenToSend.startsWith('EAA')) {
+      toast.error('Token must be a Page Access Token from Meta Generate (starts with EAA)');
+      return;
+    }
+    if (pageId.includes('@')) {
+      toast.error('Page ID should be empty or a number — clear the email autofill');
+      return;
+    }
+    if (!verifyToken.trim()) {
+      toast.error('Enter a Webhook Verify Token (same one you will use in Meta)');
+      return;
+    }
     setSaving(true);
     try {
       const res = await fetch('/api/messenger/config', {
@@ -182,11 +194,14 @@ export function MessengerConfig() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Page ID (optional — auto-detected from token)</Label>
+            <Label>Page ID (optional — leave blank)</Label>
             <Input
               value={pageId}
               onChange={(e) => setPageId(e.target.value)}
-              placeholder="123456789012345"
+              placeholder="Leave empty — filled from token"
+              autoComplete="off"
+              name="messenger-page-id"
+              inputMode="numeric"
             />
           </div>
           <div className="space-y-2">
@@ -199,7 +214,10 @@ export function MessengerConfig() {
                   setAccessToken(e.target.value);
                   setTokenEdited(true);
                 }}
-                placeholder="EAA..."
+                placeholder="EAA... (from Meta → Generate)"
+                autoComplete="new-password"
+                name="messenger-page-access-token"
+                spellCheck={false}
               />
               <button
                 type="button"
@@ -209,6 +227,9 @@ export function MessengerConfig() {
                 {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
+            <p className="text-xs text-muted-foreground">
+              Meta → Messenger API Settings → your Page → <strong>Generate</strong>, then paste the full token (starts with EAA).
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Webhook Verify Token</Label>
@@ -216,6 +237,8 @@ export function MessengerConfig() {
               value={verifyToken}
               onChange={(e) => setVerifyToken(e.target.value)}
               placeholder="Choose any secret string"
+              autoComplete="off"
+              name="messenger-verify-token"
             />
             <p className="text-xs text-muted-foreground">
               Must match the Verify Token you enter in Meta webhook settings.
