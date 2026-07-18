@@ -16,6 +16,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { MessageSquare, UsersRound } from "lucide-react";
+import { AmbientBackdrop } from "@/components/layout/ambient-backdrop";
+import { LanguageSwitcher } from "@/components/layout/language-switcher";
 
 // `useSearchParams` opts the component out of static prerendering
 // unless it sits under a Suspense boundary. We split the form into
@@ -75,17 +77,24 @@ function LoginPageInner() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <Card className="w-full max-w-md border-border bg-card">
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-10">
+      <AmbientBackdrop />
+      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6">
+        <LanguageSwitcher />
+      </div>
+      <Card className="glass-panel relative z-10 w-full max-w-md border-white/10 bg-card/80 shadow-2xl">
         <CardHeader className="items-center text-center">
-          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
+          <div className="mb-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/15 shadow-[0_0_40px_color-mix(in_oklch,var(--primary)_35%,transparent)]">
             {inviteToken ? (
-              <UsersRound className="h-6 w-6 text-primary" />
+              <UsersRound className="h-7 w-7 text-primary" />
             ) : (
-              <MessageSquare className="h-6 w-6 text-primary" />
+              <MessageSquare className="h-7 w-7 text-primary" />
             )}
           </div>
-          <CardTitle className="text-xl text-foreground">
+          <p className="font-display text-xs font-medium tracking-[0.2em] text-primary uppercase">
+            Dawat Lead CRM
+          </p>
+          <CardTitle className="font-display text-2xl font-semibold tracking-wide text-foreground">
             {inviteToken ? t('titleAccept') : t('titleWelcome')}
           </CardTitle>
           <CardDescription className="text-muted-foreground">

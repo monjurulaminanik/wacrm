@@ -1,0 +1,122 @@
+{
+  "LoginPage": {
+    "titleAccept": "আমন্ত্রণ গ্রহণ করতে সাইন ইন করুন",
+    "titleWelcome": "ফিরে আসার জন্য স্বাগতম",
+    "descAccept": "সাইন ইন করুন — আমরা আপনাকে আমন্ত্রণে নিয়ে যাব।",
+    "descWelcome": "আপনার লিড CRM অ্যাকাউন্টে প্রবেশ করুন",
+    "emailLabel": "ইমেইল",
+    "emailPlaceholder": "you@example.com",
+    "passwordLabel": "পাসওয়ার্ড",
+    "forgotPassword": "পাসওয়ার্ড ভুলে গেছেন?",
+    "passwordPlaceholder": "পাসওয়ার্ড লিখুন",
+    "signingIn": "সাইন ইন হচ্ছে…",
+    "signIn": "সাইন ইন",
+    "noAccount": "অ্যাকাউন্ট নেই?",
+    "createAccount": "অ্যাকাউন্ট তৈরি করুন"
+  },
+  "Sidebar": {
+    "title": "Dawat Lead CRM",
+    "tagline": "রিয়েল এস্টেট লিড Hub",
+    "dashboard": "ড্যাশবোর্ড",
+    "inbox": "ইনবক্স",
+    "notifications": "নোটিফিকেশন",
+    "contacts": "কন্টাক্টস",
+    "pipelines": "পাইপলাইন",
+    "broadcasts": "ব্রডকাস্ট",
+    "automations": "অটোমেশন",
+    "flows": "ফ্লো",
+    "aiAgents": "AI এজেন্ট",
+    "settings": "সেটিংস",
+    "beta": "বিটা",
+    "unreadConversations": "{count}টি অপঠিত কথোপকথন",
+    "unreadNotifications": "{count}টি অপঠিত নোটিফিকেশন",
+    "roleOwner": "ওনার",
+    "roleAdmin": "অ্যাডমিন",
+    "roleAgent": "এজেন্ট",
+    "roleViewer": "ভিউয়ার",
+    "closeMenu": "মেনু বন্ধ",
+    "defaultUser": "ইউজার",
+    "defaultAvatar": "অ্যাভাটার",
+    "menuProfile": "প্রোফাইল",
+    "menuSettings": "সেটিংস",
+    "menuSignOut": "সাইন আউট"
+  },
+  "Header": {
+    "dashboard": "ড্যাশবোর্ড",
+    "inbox": "ইনবক্স",
+    "notifications": "নোটিফিকেশন",
+    "contacts": "কন্টাক্টস",
+    "pipelines": "পাইপলাইন",
+    "broadcasts": "ব্রডকাস্ট",
+    "automations": "অটোমেশন",
+    "settings": "সেটিংস",
+    "openMenu": "মেনু খুলুন",
+    "openAccountMenu": "অ্যাকাউন্ট মেনু",
+    "defaultUser": "ইউজার",
+    "defaultAvatar": "অ্যাভাটার",
+    "menuProfile": "প্রোফাইল",
+    "menuSettings": "সেটিংস",
+    "menuSignOut": "সাইন আউট"
+  },
+  "ModeToggle": {
+    "switchMode": "{mode} মোডে যান"
+  },
+  "LanguageSwitcher": {
+    "label": "ভাষা",
+    "bn": "বাংলা",
+    "en": "English",
+    "aria": "ভাষা পরিবর্তন করুন"
+  },
+  "Dashboard": {
+    "page": {
+      "title": "ড্যাশবোর্ড",
+      "description": "কথোপকথন, কন্টাক্ট, ডিল, ব্রডকাস্ট ও অটোমেশনের লাইভ অ্যানালিটিক্স।",
+      "activeConversations": "সক্রিয় কথোপকথন",
+      "newContactsToday": "আজকের নতুন কন্টাক্ট"
+    }
+  },
+  "Inbox": {
+    "page": {
+      "whatsappNotConnected": "WhatsApp® কানেক্ট নেই। সেটিংসে গিয়ে অ্যাকাউন্ট কানেক্ট করুন।"
+    },
+    "conversationList": {
+      "searchPlaceholder": "কথোপকথন খুঁজুন…",
+      "channelFilter": "চ্যানেল",
+      "channelAll": "সব",
+      "channelWhatsapp": "WA",
+      "channelMessenger": "মেসেঞ্জার",
+      "filterAll": "সব",
+      "filterUnread": "অপঠিত",
+      "filterOpen": "ওপেন",
+      "filterPending": "পেন্ডিং",
+      "filterClosed": "বন্ধ",
+      "tags": "ট্যাগ",
+      "company": "কোম্পানি",
+      "allCompanies": "সব কোম্পানি",
+      "clearAll": "সব মুছুন",
+      "noConversations": "কোনো কথোপকথন নেই",
+      "noMessagesYet": "এখনো মেসেজ নেই",
+      "unknown": "অজানা"
+    }
+  },
+  "Settings": {
+    "sections": {
+      "overview": "ওভারভিউ",
+      "profile": "আপনার প্রোফাইল",
+      "security": "লগইন ও সিকিউরিটি",
+      "appearance": "অ্যাপিয়ারেন্স",
+      "whatsapp": "WhatsApp",
+      "messenger": "মেসেঞ্জার",
+      "templates": "টেমপ্লেট",
+      "quick-replies": "কুইক রিপ্লাই",
+      "fields": "ফিল্ড ও ট্যাগ",
+      "deals": "ডিল ও মুদ্রা",
+      "members": "টিম মেম্বার",
+      "api": "API কী"
+    },
+    "groups": {
+      "account": "অ্যাকাউন্ট",
+      "workspace": "ওয়ার্কস্পেস"
+    }
+  }
+}

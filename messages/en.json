@@ -15,7 +15,8 @@
     "createAccount": "Create account"
   },
   "Sidebar": {
-    "title": "CRM Template for WhatsApp",
+    "title": "Dawat Lead CRM",
+    "tagline": "Real estate lead hub",
     "dashboard": "Dashboard",
     "inbox": "Inbox",
     "notifications": "Notifications",
@@ -59,6 +60,12 @@
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
+  },
+  "LanguageSwitcher": {
+    "label": "Language",
+    "bn": "বাংলা",
+    "en": "English",
+    "aria": "Switch language"
   },
   "Dashboard": {
     "page": {

@@ -14,6 +14,7 @@
  */
 
 export const THEME_IDS = [
+  "champagne",
   "violet",
   "emerald",
   "cobalt",
@@ -23,7 +24,7 @@ export const THEME_IDS = [
 
 export type ThemeId = (typeof THEME_IDS)[number];
 
-export const DEFAULT_THEME: ThemeId = "violet";
+export const DEFAULT_THEME: ThemeId = "champagne";
 
 export const STORAGE_KEY = "wacrm.theme";
 
@@ -68,9 +69,15 @@ export interface ThemeMeta {
 
 export const THEMES: ReadonlyArray<ThemeMeta> = [
   {
+    id: "champagne",
+    name: "Champagne",
+    tagline: "Luxury real-estate gold — glass & midnight.",
+    swatch: "oklch(0.78 0.09 85)",
+  },
+  {
     id: "violet",
     name: "Violet",
-    tagline: "The default — confident, slightly playful.",
+    tagline: "The classic — confident, slightly playful.",
     swatch: "oklch(0.526 0.247 293)",
   },
   {
