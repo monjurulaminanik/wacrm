@@ -14,8 +14,13 @@ describe("formatCurrency", () => {
     expect(out).not.toContain(".00");
   });
 
-  it("defaults to USD when no currency is given", () => {
+  it("defaults to BDT when no currency is given", () => {
+    expect(DEFAULT_CURRENCY).toBe("BDT");
     expect(formatCurrency(10)).toBe(formatCurrency(10, DEFAULT_CURRENCY));
+  });
+
+  it("includes BDT in the picker list", () => {
+    expect(CURRENCIES.some((c) => c.code === "BDT")).toBe(true);
   });
 
   it("treats an empty-string currency as the default", () => {
@@ -57,6 +62,7 @@ describe("formatCurrencyShort", () => {
   it("uses the matching symbol for non-USD currencies", () => {
     expect(formatCurrencyShort(1_000, "EUR")).toBe("€1.0k");
     expect(formatCurrencyShort(1_000, "INR")).toBe("₹1.0k");
+    expect(formatCurrencyShort(1_000, "BDT")).toBe("৳1.0k");
   });
 
   it("falls back to the code prefix for unknown currencies (no throw)", () => {

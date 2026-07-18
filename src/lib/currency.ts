@@ -11,14 +11,14 @@
  */
 
 /** App-wide fallback when no account/deal currency is available. */
-export const DEFAULT_CURRENCY = "USD";
+export const DEFAULT_CURRENCY = "BDT";
 
 export interface CurrencyOption {
-  /** ISO-4217 code, e.g. "USD". Stored verbatim in the DB. */
+  /** ISO-4217 code, e.g. "BDT". Stored verbatim in the DB. */
   code: string;
-  /** Human label for the dropdown, e.g. "US Dollar". */
+  /** Human label for the dropdown, e.g. "Bangladeshi Taka". */
   label: string;
-  /** Symbol for compact display, e.g. "$". */
+  /** Symbol for compact display, e.g. "৳". */
   symbol: string;
 }
 
@@ -28,6 +28,7 @@ export interface CurrencyOption {
  * list to offer more — nothing else needs to change.
  */
 export const CURRENCIES: CurrencyOption[] = [
+  { code: "BDT", label: "Bangladeshi Taka", symbol: "৳" },
   { code: "USD", label: "US Dollar", symbol: "$" },
   { code: "EUR", label: "Euro", symbol: "€" },
   { code: "GBP", label: "British Pound", symbol: "£" },
@@ -47,8 +48,8 @@ export const CURRENCIES: CurrencyOption[] = [
 
 /**
  * Format a deal value as a currency string. Whole-number output
- * (no minor units) — deal values are tracked to the dollar across
- * the app. `currency` defaults to USD so callers with nothing better
+ * (no minor units) — deal values are tracked as whole units across
+ * the app. `currency` defaults to BDT so callers with nothing better
  * stay safe, but pass the account/deal currency wherever known.
  *
  * Total by design: `Intl.NumberFormat` throws a RangeError on a

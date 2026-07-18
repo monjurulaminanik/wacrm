@@ -40,7 +40,7 @@ interface Profile {
 interface AccountSummary {
   id: string;
   name: string;
-  /** Default deal currency (ISO-4217). NOT NULL DEFAULT 'USD' in the
+  /** Default deal currency (ISO-4217). NOT NULL DEFAULT 'BDT' in the
    *  DB (migration 021); narrowed to DEFAULT_CURRENCY when absent. */
   default_currency: string;
 }

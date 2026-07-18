@@ -570,7 +570,7 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         contact_id: args.contactId,
         title: interpolate(cfg.title, args),
         value: cfg.value ?? 0,
-        currency: acct?.default_currency ?? 'USD',
+        currency: acct?.default_currency ?? 'BDT',
         status: 'open',
       })
       return 'deal created'
