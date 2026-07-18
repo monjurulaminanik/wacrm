@@ -4,6 +4,7 @@ import { decrypt, encrypt, isLegacyFormat } from "@/lib/whatsapp/encryption";
 import { verifyMetaWebhookSignature } from "@/lib/whatsapp/webhook-signature";
 import { isUniqueViolation } from "@/lib/contacts/dedupe";
 import { fetchMessengerUserName } from "@/lib/messenger/meta-api";
+import { ensureContactLeadTag } from "@/lib/contacts/ensure-lead-tag";
 
 export const maxDuration = 60;
 
@@ -226,6 +227,11 @@ async function processMessengerWebhook(body: {
           }
         } else {
           contactId = created.id;
+          await ensureContactLeadTag(db, {
+            accountId: config.account_id,
+            userId: config.user_id,
+            contactId: created.id,
+          });
         }
       }
 

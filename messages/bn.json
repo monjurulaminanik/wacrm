@@ -22,6 +22,7 @@
     "notifications": "নোটিফিকেশন",
     "contacts": "কন্টাক্টস",
     "pipelines": "পাইপলাইন",
+    "hr": "HR ও পেরোল",
     "broadcasts": "ব্রডকাস্ট",
     "automations": "অটোমেশন",
     "flows": "ফ্লো",
@@ -47,6 +48,7 @@
     "notifications": "নোটিফিকেশন",
     "contacts": "কন্টাক্টস",
     "pipelines": "পাইপলাইন",
+    "hr": "HR ও পেরোল",
     "broadcasts": "ব্রডকাস্ট",
     "automations": "অটোমেশন",
     "settings": "সেটিংস",
@@ -97,6 +99,24 @@
       "noConversations": "কোনো কথোপকথন নেই",
       "noMessagesYet": "এখনো মেসেজ নেই",
       "unknown": "অজানা"
+    }
+  },
+  "Contacts": {
+    "page": {
+      "dateAll": "সব সময়",
+      "dateToday": "আজ",
+      "date7d": "৭ দিন",
+      "date30d": "৩০ দিন",
+      "dateFrom": "শুরুর তারিখ",
+      "dateTo": "শেষ তারিখ"
+    }
+  },
+  "Pipelines": {
+    "page": {
+      "dateAll": "সব সময়",
+      "dateToday": "আজ",
+      "date7d": "৭ দিন",
+      "date30d": "৩০ দিন"
     }
   },
   "Settings": {

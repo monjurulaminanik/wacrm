@@ -31,6 +31,23 @@ import { useAuth } from "@/hooks/use-auth";
 import { GatedButton } from "@/components/ui/gated-button";
 import { useTranslations } from "next-intl";
 
+function filterDealsByPreset(
+  deals: Deal[],
+  preset: "all" | "today" | "7d" | "30d",
+): Deal[] {
+  if (preset === "all") return deals;
+  const now = new Date();
+  const start = new Date(now);
+  if (preset === "today") {
+    start.setHours(0, 0, 0, 0);
+  } else {
+    start.setDate(start.getDate() - (preset === "7d" ? 6 : 29));
+    start.setHours(0, 0, 0, 0);
+  }
+  const t0 = start.getTime();
+  return deals.filter((d) => new Date(d.created_at).getTime() >= t0);
+}
+
 // Pipeline creation is admin-class (settings-tier write under
 // the new RLS); deal creation is operational and only requires
 // agent+. The two CTAs gate on different `useCan` capabilities,
@@ -56,6 +73,8 @@ export default function PipelinesPage() {
   const [selectedPipelineId, setSelectedPipelineId] = useState<string>("");
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [allDeals, setAllDeals] = useState<Deal[]>([]);
+  const [dealDatePreset, setDealDatePreset] = useState<'all' | 'today' | '7d' | '30d'>('all');
   const [loading, setLoading] = useState(true);
 
   // Dialog / sheet state
@@ -189,12 +208,17 @@ export default function PipelinesPage() {
       ]);
       if (cancelled) return;
       setStages(s);
-      setDeals(d);
+      setAllDeals(d);
+      setDeals(filterDealsByPreset(d, dealDatePreset));
     })();
     return () => {
       cancelled = true;
     };
-  }, [selectedPipelineId, loadStages, loadDeals]);
+  }, [selectedPipelineId, loadStages, loadDeals, dealDatePreset]);
+
+  useEffect(() => {
+    setDeals(filterDealsByPreset(allDeals, dealDatePreset));
+  }, [allDeals, dealDatePreset]);
 
   const refreshPipelines = useCallback(async () => {
     const list = await loadPipelines();
@@ -211,8 +235,10 @@ export default function PipelinesPage() {
 
   const refreshDeals = useCallback(async () => {
     if (!selectedPipelineId) return;
-    setDeals(await loadDeals(selectedPipelineId));
-  }, [loadDeals, selectedPipelineId]);
+    const d = await loadDeals(selectedPipelineId);
+    setAllDeals(d);
+    setDeals(filterDealsByPreset(d, dealDatePreset));
+  }, [loadDeals, selectedPipelineId, dealDatePreset]);
 
   const handleDealMoved = useCallback(
     async (dealId: string, newStageId: string) => {
@@ -317,7 +343,30 @@ export default function PipelinesPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1 rounded-full border border-border bg-card/60 p-0.5">
+            {(
+              [
+                { id: "all" as const, label: t("dateAll") },
+                { id: "today" as const, label: t("dateToday") },
+                { id: "7d" as const, label: t("date7d") },
+                { id: "30d" as const, label: t("date30d") },
+              ] as const
+            ).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setDealDatePreset(p.id)}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  dealDatePreset === p.id
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           {/* Pipeline selector dropdown */}
           <DropdownMenu>
             <DropdownMenuTrigger

@@ -77,6 +77,9 @@ export default function ContactsPage() {
   const [totalCount, setTotalCount] = useState(0);
   // Tag filter — contacts shown must have ANY of these tags (OR).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
+  const [datePreset, setDatePreset] = useState<'all' | 'today' | '7d' | '30d' | 'custom'>('all');
 
   // Modals
   const [formOpen, setFormOpen] = useState(false);
@@ -152,6 +155,14 @@ export default function ContactsPage() {
       }
       const rows = (data ?? []) as { contact: Contact; total_count: number }[];
       contactRows = rows.map((r) => r.contact);
+      if (dateFrom || dateTo) {
+        contactRows = contactRows.filter((c) => {
+          const t0 = new Date(c.created_at).getTime();
+          if (dateFrom && t0 < new Date(`${dateFrom}T00:00:00.000Z`).getTime()) return false;
+          if (dateTo && t0 > new Date(`${dateTo}T23:59:59.999Z`).getTime()) return false;
+          return true;
+        });
+      }
       count = rows.length > 0 ? Number(rows[0].total_count) : 0;
     } else {
       let query = supabase
@@ -163,6 +174,12 @@ export default function ContactsPage() {
       if (term) {
         const like = `%${term}%`;
         query = query.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like}`);
+      }
+      if (dateFrom) {
+        query = query.gte('created_at', `${dateFrom}T00:00:00.000Z`);
+      }
+      if (dateTo) {
+        query = query.lte('created_at', `${dateTo}T23:59:59.999Z`);
       }
 
       const { data, count: exactCount, error } = await query;
@@ -207,7 +224,7 @@ export default function ContactsPage() {
 
     setContacts(enriched);
     setLoading(false);
-  }, [supabase, page, search, selectedTagIds, tagsMap, t]);
+  }, [supabase, page, search, selectedTagIds, dateFrom, dateTo, tagsMap, t]);
 
   // Load-once-on-mount-ish data fetches. Each setter inside runs
   // inside an async promise completion (Supabase await), not
@@ -397,6 +414,72 @@ export default function ContactsPage() {
               }}
               placeholder={t('searchPlaceholder')}
               className="pl-8 bg-card border-border text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {(
+              [
+                { id: 'all' as const, label: t('dateAll') },
+                { id: 'today' as const, label: t('dateToday') },
+                { id: '7d' as const, label: t('date7d') },
+                { id: '30d' as const, label: t('date30d') },
+              ] as const
+            ).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => {
+                  setDatePreset(p.id);
+                  setPage(0);
+                  const now = new Date();
+                  if (p.id === 'all') {
+                    setDateFrom('');
+                    setDateTo('');
+                    return;
+                  }
+                  const to = now.toISOString().slice(0, 10);
+                  if (p.id === 'today') {
+                    setDateFrom(to);
+                    setDateTo(to);
+                    return;
+                  }
+                  const from = new Date(now);
+                  from.setDate(from.getDate() - (p.id === '7d' ? 6 : 29));
+                  setDateFrom(from.toISOString().slice(0, 10));
+                  setDateTo(to);
+                }}
+                className={`rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  datePreset === p.id
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+            <Input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => {
+                setDatePreset('custom');
+                setDateFrom(e.target.value);
+                setPage(0);
+              }}
+              className="h-8 w-auto border-border bg-muted text-xs"
+              aria-label={t('dateFrom')}
+            />
+            <span className="text-xs text-muted-foreground">→</span>
+            <Input
+              type="date"
+              value={dateTo}
+              onChange={(e) => {
+                setDatePreset('custom');
+                setDateTo(e.target.value);
+                setPage(0);
+              }}
+              className="h-8 w-auto border-border bg-muted text-xs"
+              aria-label={t('dateTo')}
             />
           </div>
 

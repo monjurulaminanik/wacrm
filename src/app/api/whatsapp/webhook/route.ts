@@ -4,6 +4,7 @@ import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption'
 import { getMediaUrl, downloadMedia } from '@/lib/whatsapp/meta-api'
 import { normalizePhone } from '@/lib/whatsapp/phone-utils'
 import { findExistingContact, isUniqueViolation } from '@/lib/contacts/dedupe'
+import { ensureContactLeadTag } from '@/lib/contacts/ensure-lead-tag'
 import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
@@ -1021,6 +1022,7 @@ async function findOrCreateContact(
       user_id: configOwnerUserId,
       phone,
       name: name || phone,
+      channel: 'whatsapp',
     })
     .select()
     .single()
@@ -1037,6 +1039,12 @@ async function findOrCreateContact(
     console.error('Error creating contact:', createError)
     return null
   }
+
+  await ensureContactLeadTag(supabaseAdmin(), {
+    accountId,
+    userId: configOwnerUserId,
+    contactId: newContact.id,
+  })
 
   return { contact: newContact, wasCreated: true }
 }
