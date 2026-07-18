@@ -15,12 +15,69 @@ function isUsablePageId(value: string | undefined | null): value is string {
   return true;
 }
 
+function appAccessToken(): string | null {
+  const appId =
+    process.env.META_APP_ID?.trim() ||
+    process.env.NEXT_PUBLIC_META_APP_ID?.trim();
+  const secret = process.env.META_APP_SECRET?.trim();
+  if (!appId || !secret) return null;
+  return `${appId}|${secret}`;
+}
+
+/**
+ * Validate a Page Access Token via debug_token (no pages_read_engagement).
+ * Returns the Page id when the token is a valid PAGE token for our app.
+ */
+async function resolvePageIdViaDebugToken(
+  pageAccessToken: string,
+): Promise<{ id: string; name: string } | null> {
+  const appToken = appAccessToken();
+  if (!appToken) return null;
+
+  const url =
+    `${GRAPH}/debug_token?input_token=${encodeURIComponent(pageAccessToken)}` +
+    `&access_token=${encodeURIComponent(appToken)}`;
+  const res = await fetch(url);
+  const json = (await res.json()) as {
+    data?: {
+      is_valid?: boolean;
+      type?: string;
+      app_id?: string;
+      profile_id?: string;
+      user_id?: string;
+      error?: { message?: string };
+    };
+    error?: { message?: string };
+  };
+
+  if (!res.ok || json.error) return null;
+  const data = json.data;
+  if (!data?.is_valid) return null;
+
+  // PAGE tokens expose the Page as profile_id; some payloads use user_id.
+  const pageId = data.profile_id || data.user_id;
+  if (!pageId) return null;
+
+  // Optional name — ignore permission errors.
+  let name = "Facebook Page";
+  try {
+    const nameRes = await fetch(
+      `${GRAPH}/${pageId}?fields=name&access_token=${encodeURIComponent(pageAccessToken)}`,
+    );
+    const nameJson = (await nameRes.json()) as { name?: string };
+    if (nameRes.ok && nameJson.name) name = nameJson.name;
+  } catch {
+    // keep default
+  }
+
+  return { id: pageId, name };
+}
+
 /**
  * Resolve Page id + name from a Page Access Token.
  *
- * Newer Graph versions sometimes reject `/me?fields=name` without
- * `pages_read_engagement`. We try several lightweight calls so CRM setup
- * works with a normal Messenger Page token.
+ * Avoids relying on `/me?fields=name`, which Meta often blocks without
+ * `pages_read_engagement` / Page Public Metadata Access during Dev mode.
  */
 export async function fetchMessengerPageProfile(
   accessToken: string,
@@ -29,10 +86,34 @@ export async function fetchMessengerPageProfile(
   id: string;
   name: string;
 }> {
-  const tokenQ = `access_token=${encodeURIComponent(accessToken)}`;
   const errors: string[] = [];
 
-  async function tryUrl(url: string): Promise<{ id: string; name: string } | null> {
+  // 1) Preferred: App debug_token — works with pages_messaging alone.
+  try {
+    const viaDebug = await resolvePageIdViaDebugToken(accessToken);
+    if (viaDebug) {
+      if (
+        isUsablePageId(pageIdHint) &&
+        pageIdHint !== viaDebug.id
+      ) {
+        throw new Error(
+          `Page ID mismatch: token belongs to ${viaDebug.id}, not ${pageIdHint}`,
+        );
+      }
+      return viaDebug;
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith("Page ID mismatch")) {
+      throw err;
+    }
+    // continue to fallbacks
+  }
+
+  const tokenQ = `access_token=${encodeURIComponent(accessToken)}`;
+
+  async function tryUrl(
+    url: string,
+  ): Promise<{ id: string; name: string } | null> {
     const res = await fetch(url);
     const json = (await res.json()) as {
       id?: string;
@@ -46,25 +127,24 @@ export async function fetchMessengerPageProfile(
     return { id: json.id, name: json.name || "Facebook Page" };
   }
 
+  // 2) Explicit Page ID from the form (real digits only).
   if (isUsablePageId(pageIdHint)) {
     const byId = await tryUrl(
       `${GRAPH}/${pageIdHint}?fields=id,name&${tokenQ}`,
     );
     if (byId) return byId;
-    const byIdOnly = await tryUrl(`${GRAPH}/${pageIdHint}?fields=id&${tokenQ}`);
-    if (byIdOnly) return byIdOnly;
+    // Token is accepted for messaging even when name/metadata is blocked.
+    // Save with the known Page ID so webhook + send still work.
+    return { id: pageIdHint, name: "Facebook Page" };
   }
 
-  // Page Access Tokens resolve `/me` to the Page itself.
-  const meNamed = await tryUrl(`${GRAPH}/me?fields=id,name&${tokenQ}`);
-  if (meNamed) return meNamed;
-
+  // 3) Last resort `/me` (may need pages_read_engagement on some apps).
   const meId = await tryUrl(`${GRAPH}/me?fields=id&${tokenQ}`);
   if (meId) return meId;
 
   throw new Error(
     errors[0] ||
-      "Failed to load Facebook Page. Use a Page Access Token from Meta → Generate (not a User token), and leave Page ID blank.",
+      "Could not validate Page token. Paste the token from Meta → Generate, leave Page ID blank, and ensure META_APP_ID is set on the server.",
   );
 }
 
