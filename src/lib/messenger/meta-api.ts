@@ -6,22 +6,66 @@
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 
-export async function fetchMessengerPageProfile(accessToken: string): Promise<{
+/** Placeholder / autofill values that must never be treated as a real Page ID. */
+function isUsablePageId(value: string | undefined | null): value is string {
+  if (!value) return false;
+  if (!/^\d{5,}$/.test(value)) return false;
+  // Old form placeholder — never a real Page.
+  if (value === "123456789012345") return false;
+  return true;
+}
+
+/**
+ * Resolve Page id + name from a Page Access Token.
+ *
+ * Newer Graph versions sometimes reject `/me?fields=name` without
+ * `pages_read_engagement`. We try several lightweight calls so CRM setup
+ * works with a normal Messenger Page token.
+ */
+export async function fetchMessengerPageProfile(
+  accessToken: string,
+  pageIdHint?: string,
+): Promise<{
   id: string;
   name: string;
 }> {
-  const res = await fetch(
-    `${GRAPH}/me?fields=id,name&access_token=${encodeURIComponent(accessToken)}`,
-  );
-  const json = (await res.json()) as {
-    id?: string;
-    name?: string;
-    error?: { message?: string };
-  };
-  if (!res.ok || !json.id) {
-    throw new Error(json.error?.message || "Failed to load Facebook Page");
+  const tokenQ = `access_token=${encodeURIComponent(accessToken)}`;
+  const errors: string[] = [];
+
+  async function tryUrl(url: string): Promise<{ id: string; name: string } | null> {
+    const res = await fetch(url);
+    const json = (await res.json()) as {
+      id?: string;
+      name?: string;
+      error?: { message?: string };
+    };
+    if (!res.ok || !json.id) {
+      if (json.error?.message) errors.push(json.error.message);
+      return null;
+    }
+    return { id: json.id, name: json.name || "Facebook Page" };
   }
-  return { id: json.id, name: json.name || "Facebook Page" };
+
+  if (isUsablePageId(pageIdHint)) {
+    const byId = await tryUrl(
+      `${GRAPH}/${pageIdHint}?fields=id,name&${tokenQ}`,
+    );
+    if (byId) return byId;
+    const byIdOnly = await tryUrl(`${GRAPH}/${pageIdHint}?fields=id&${tokenQ}`);
+    if (byIdOnly) return byIdOnly;
+  }
+
+  // Page Access Tokens resolve `/me` to the Page itself.
+  const meNamed = await tryUrl(`${GRAPH}/me?fields=id,name&${tokenQ}`);
+  if (meNamed) return meNamed;
+
+  const meId = await tryUrl(`${GRAPH}/me?fields=id&${tokenQ}`);
+  if (meId) return meId;
+
+  throw new Error(
+    errors[0] ||
+      "Failed to load Facebook Page. Use a Page Access Token from Meta → Generate (not a User token), and leave Page ID blank.",
+  );
 }
 
 export async function sendMessengerText(params: {

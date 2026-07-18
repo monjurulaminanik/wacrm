@@ -77,8 +77,8 @@ export function MessengerConfig() {
       toast.error('Token must be a Page Access Token from Meta Generate (starts with EAA)');
       return;
     }
-    if (pageId.includes('@')) {
-      toast.error('Page ID should be empty or a number — clear the email autofill');
+    if (pageId.includes('@') || pageId === '123456789012345') {
+      toast.error('Page ID clear করুন — খালি রাখুন (auto-detect হবে)');
       return;
     }
     if (!verifyToken.trim()) {

@@ -126,7 +126,10 @@ export async function POST(request: Request) {
 
     let pageInfo: { id: string; name: string };
     try {
-      pageInfo = await fetchMessengerPageProfile(access_token);
+      pageInfo = await fetchMessengerPageProfile(
+        access_token,
+        typeof page_id === "string" ? page_id.trim() : undefined,
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Invalid Page token";
       return NextResponse.json({ error: message }, { status: 400 });
