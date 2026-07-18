@@ -9,7 +9,7 @@ import {
 } from "@/lib/inbox/conversations";
 import { cn } from "@/lib/utils";
 import type { Conversation, ConversationStatus, Tag } from "@/types";
-import { Search, ChevronDown, X } from "lucide-react";
+import { Search, ChevronDown, X, MessageCircle } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { useTranslations } from "next-intl";
 import { Input } from "@/components/ui/input";
@@ -42,9 +42,20 @@ const STATUS_COLORS: Record<ConversationStatus, string> = {
   closed: "bg-muted-foreground",
 };
 
-
-
 type InboxFilter = ConversationStatus | "all" | "unread";
+type ChannelFilter = "all" | "whatsapp" | "messenger";
+
+/** Small WhatsApp glyph — matches Meta brand green, used as a channel chip. */
+function WhatsAppGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path
+        fill="currentColor"
+        d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.435 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"
+      />
+    </svg>
+  );
+}
 
 export function ConversationList({
   activeConversationId,
@@ -65,6 +76,7 @@ export function ConversationList({
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<InboxFilter>("all");
+  const [channel, setChannel] = useState<ChannelFilter>("all");
   const [loading, setLoading] = useState(true);
   // Contact-based filters (issue #272). Tags use OR logic (a conversation
   // matches if its contact carries any selected tag), consistent with
@@ -158,8 +170,28 @@ export function ConversationList({
     return m;
   }, [tags]);
 
+  const channelCounts = useMemo(() => {
+    let whatsapp = 0;
+    let messenger = 0;
+    for (const c of conversations) {
+      if (c.channel === "messenger") messenger += 1;
+      else whatsapp += 1;
+    }
+    return {
+      all: conversations.length,
+      whatsapp,
+      messenger,
+    };
+  }, [conversations]);
+
   const filtered = useMemo(() => {
     let result = conversations;
+
+    if (channel === "messenger") {
+      result = result.filter((c) => c.channel === "messenger");
+    } else if (channel === "whatsapp") {
+      result = result.filter((c) => (c.channel ?? "whatsapp") !== "messenger");
+    }
 
     if (filter === "unread") {
       result = result.filter((c) => c.unread_count > 0);
@@ -188,7 +220,7 @@ export function ConversationList({
     }
 
     return result;
-  }, [conversations, filter, search, selectedTagIds, selectedCompany]);
+  }, [conversations, channel, filter, search, selectedTagIds, selectedCompany]);
 
   const toggleTag = useCallback((id: string) => {
     setSelectedTagIds((prev) =>
@@ -224,8 +256,72 @@ export function ConversationList({
     // the single pane showing; fixed 320px on desktop where it shares the
     // row with the thread + contact sidebar.
     <div className="flex h-full w-full flex-col border-r border-border bg-card lg:w-80">
-      {/* Search + Filter */}
+      {/* Channel switcher + Search + Filter */}
       <div className="space-y-2 border-b border-border p-3">
+        <div
+          role="tablist"
+          aria-label={t("channelFilter")}
+          className="grid grid-cols-3 gap-1 rounded-lg bg-muted/70 p-1"
+        >
+          {(
+            [
+              { id: "all" as const, label: t("channelAll"), count: channelCounts.all },
+              {
+                id: "whatsapp" as const,
+                label: t("channelWhatsapp"),
+                count: channelCounts.whatsapp,
+              },
+              {
+                id: "messenger" as const,
+                label: t("channelMessenger"),
+                count: channelCounts.messenger,
+              },
+            ] as const
+          ).map((tab) => {
+            const active = channel === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setChannel(tab.id)}
+                className={cn(
+                  "flex items-center justify-center gap-1 rounded-md px-1.5 py-1.5 text-[11px] font-medium transition-colors",
+                  active
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {tab.id === "whatsapp" ? (
+                  <WhatsAppGlyph
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0",
+                      active ? "text-[#25D366]" : "text-muted-foreground",
+                    )}
+                  />
+                ) : tab.id === "messenger" ? (
+                  <MessageCircle
+                    className={cn(
+                      "h-3.5 w-3.5 shrink-0",
+                      active ? "text-[#0084FF]" : "text-muted-foreground",
+                    )}
+                  />
+                ) : null}
+                <span className="truncate">{tab.label}</span>
+                <span
+                  className={cn(
+                    "tabular-nums text-[10px]",
+                    active ? "text-muted-foreground" : "text-muted-foreground/70",
+                  )}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="relative">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -437,7 +533,12 @@ function ConversationItem({
   t,
 }: ConversationItemProps) {
   const contact = conversation.contact;
-  const displayName = contact?.name || contact?.phone || t("unknown");
+  const isMessenger = conversation.channel === "messenger";
+  const displayName =
+    contact?.name ||
+    contact?.phone ||
+    (isMessenger ? "Messenger" : null) ||
+    t("unknown");
   const initials = displayName.charAt(0).toUpperCase();
 
   const handleClick = useCallback(() => {
@@ -474,8 +575,26 @@ function ConversationItem({
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-foreground">
-            {displayName}
+            <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-sm font-medium text-foreground">
+              {displayName}
+            </span>
+            {isMessenger ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-0.5 rounded bg-[#0084FF]/15 px-1 py-px text-[9px] font-medium text-[#0084FF]"
+                title="Messenger"
+              >
+                <MessageCircle className="h-2.5 w-2.5" />
+                FB
+              </span>
+            ) : (
+              <span
+                className="inline-flex shrink-0 items-center text-[#25D366]"
+                title="WhatsApp"
+              >
+                <WhatsAppGlyph className="h-3 w-3" />
+              </span>
+            )}
           </span>
           <span className="shrink-0 text-[10px] text-muted-foreground">{timeAgo}</span>
         </div>

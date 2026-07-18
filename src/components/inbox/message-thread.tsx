@@ -466,7 +466,11 @@ export function MessageThread({
       setReplyTo(null);
 
       try {
-        const res = await fetch("/api/whatsapp/send", {
+        const sendPath =
+          conversation.channel === "messenger"
+            ? "/api/messenger/send"
+            : "/api/whatsapp/send";
+        const res = await fetch(sendPath, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -505,6 +509,10 @@ export function MessageThread({
   const handleSendMedia = useCallback(
     async (payload: SendMediaPayload) => {
       if (!conversation) return;
+      if (conversation.channel === "messenger") {
+        toast.error("Media send on Messenger is not supported yet — send text for now.");
+        return;
+      }
 
       // Documents show their filename in our own bubble (and to the
       // recipient as the Meta caption when no caption was typed); other
@@ -857,7 +865,7 @@ export function MessageThread({
     );
   }
 
-  const displayName = contact.name || contact.phone;
+  const displayName = contact.name || contact.phone || "Messenger";
   const messageGroups = groupMessagesByDate(messages);
   const currentStatus = STATUS_OPTIONS.find(
     (s) => s.value === conversation.status
@@ -899,7 +907,10 @@ export function MessageThread({
           </div>
           <div className="min-w-0">
             <h2 className="truncate text-sm font-semibold text-foreground">{displayName}</h2>
-            <p className="truncate text-xs text-muted-foreground">{contact.phone}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {contact.phone ||
+                (conversation.channel === "messenger" ? "Messenger" : "")}
+            </p>
           </div>
           {/* Session timer badge — hidden on the narrowest phones so
               the name + back arrow keep their room. */}

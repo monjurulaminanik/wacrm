@@ -51,6 +51,8 @@ export function SettingsOverview({
   // from blanking the rest of the landing.
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(true);
+  const [messenger, setMessenger] = useState<WhatsAppStatus | null>(null);
+  const [messengerLoading, setMessengerLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !accountId) return;
@@ -136,6 +138,25 @@ export function SettingsOverview({
       setWhatsappLoading(false);
     })();
 
+    // Messenger Page status — independent of WhatsApp.
+    (async () => {
+      setMessengerLoading(true);
+      const [row, health] = await Promise.allSettled([
+        supabase
+          .from('messenger_config')
+          .select('page_id')
+          .eq('account_id', acctId)
+          .maybeSingle(),
+        fetch('/api/messenger/config', { cache: 'no-store' }).then((r) => r.json()),
+      ]);
+      if (cancelled) return;
+      setMessenger({
+        configured: row.status === 'fulfilled' && !!row.value.data?.page_id,
+        connected: health.status === 'fulfilled' && !!health.value?.connected,
+      });
+      setMessengerLoading(false);
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -164,6 +185,21 @@ export function SettingsOverview({
       subtitle: !whatsapp?.configured ? (
         t('notSetup')
       ) : whatsapp.connected ? (
+        <>
+          <StatusDot tone="ok" /> {t('connected')}
+        </>
+      ) : (
+        <>
+          <StatusDot tone="muted" /> {t('needsReconnecting')}
+        </>
+      ),
+    },
+    {
+      section: 'messenger',
+      loading: messengerLoading,
+      subtitle: !messenger?.configured ? (
+        t('notSetup')
+      ) : messenger.connected ? (
         <>
           <StatusDot tone="ok" /> {t('connected')}
         </>

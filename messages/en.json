@@ -131,6 +131,10 @@
     },
     "conversationList": {
       "searchPlaceholder": "Search conversations...",
+      "channelFilter": "Channel",
+      "channelAll": "All",
+      "channelWhatsapp": "WA",
+      "channelMessenger": "Messenger",
       "filterAll": "All",
       "filterUnread": "Unread",
       "filterOpen": "Open",
@@ -1500,6 +1504,7 @@
       "security": "Login & security",
       "appearance": "Appearance",
       "whatsapp": "WhatsApp",
+      "messenger": "Messenger",
       "templates": "Templates",
       "quick-replies": "Quick replies",
       "fields": "Fields & tags",
