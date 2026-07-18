@@ -48,6 +48,18 @@ export async function GET(request: Request) {
       );
     }
 
+    // Plaintext env fallback — survives encrypt/decrypt mismatches and
+    // lets Meta verify even if messenger_config row is mid-save.
+    const envVerify =
+      process.env.MESSENGER_VERIFY_TOKEN?.trim() ||
+      process.env.META_MESSENGER_VERIFY_TOKEN?.trim();
+    if (envVerify && envVerify === verifyToken) {
+      return new NextResponse(challenge, {
+        status: 200,
+        headers: { "Content-Type": "text/plain; charset=utf-8" },
+      });
+    }
+
     const { data: configs, error } = await supabaseAdmin()
       .from("messenger_config")
       .select("id, verify_token");
@@ -67,7 +79,10 @@ export async function GET(request: Request) {
               .update({ verify_token: encrypt(plain) })
               .eq("id", cfg.id);
           }
-          return new NextResponse(challenge, { status: 200 });
+          return new NextResponse(challenge, {
+            status: 200,
+            headers: { "Content-Type": "text/plain; charset=utf-8" },
+          });
         }
       } catch {
         // try next

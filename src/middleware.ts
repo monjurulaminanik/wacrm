@@ -2,6 +2,18 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname
+
+  // Meta webhook verification is time-sensitive and unauthenticated.
+  // Skip the Supabase session refresh entirely — a slow getUser() here
+  // makes Facebook show "callback URL or verify token couldn't be validated".
+  if (
+    pathname === '/api/whatsapp/webhook' ||
+    pathname === '/api/messenger/webhook'
+  ) {
+    return NextResponse.next()
+  }
+
   let supabaseResponse = NextResponse.next({ request })
 
   const supabase = createServerClient(
