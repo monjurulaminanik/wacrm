@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
@@ -15,7 +15,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { MessageSquare, UsersRound } from "lucide-react";
+import { MessageSquare, Sparkles, UsersRound } from "lucide-react";
 import { AmbientBackdrop } from "@/components/layout/ambient-backdrop";
 import { LanguageSwitcher } from "@/components/layout/language-switcher";
 
@@ -44,7 +44,37 @@ function LoginPageInner() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [demoEnabled, setDemoEnabled] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const supabase = createClient();
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/auth/demo-login", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!cancelled && data?.enabled) setDemoEnabled(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const redirectAfterLogin = () => {
+    // Full-page navigation (not router.push) so the browser issues a
+    // fresh top-level request that carries the just-written Supabase
+    // auth cookies to the middleware gating /dashboard. A soft
+    // client-side navigation can reach the protected route before the
+    // server observes the new session, so the middleware bounces it
+    // back to /login — which looks like the page "just refreshing"
+    // instead of signing in (issue #365). Mirrors the deliberate full
+    // reload the invite-accept flow already uses in join/[token].
+    const destination = inviteToken
+      ? `/join/${encodeURIComponent(inviteToken)}`
+      : "/dashboard";
+    window.location.href = destination;
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,18 +92,25 @@ function LoginPageInner() {
       return;
     }
 
-    // Full-page navigation (not router.push) so the browser issues a
-    // fresh top-level request that carries the just-written Supabase
-    // auth cookies to the middleware gating /dashboard. A soft
-    // client-side navigation can reach the protected route before the
-    // server observes the new session, so the middleware bounces it
-    // back to /login — which looks like the page "just refreshing"
-    // instead of signing in (issue #365). Mirrors the deliberate full
-    // reload the invite-accept flow already uses in join/[token].
-    const destination = inviteToken
-      ? `/join/${encodeURIComponent(inviteToken)}`
-      : "/dashboard";
-    window.location.href = destination;
+    redirectAfterLogin();
+  };
+
+  const handleDemoLogin = async () => {
+    setError(null);
+    setDemoLoading(true);
+    try {
+      const res = await fetch("/api/auth/demo-login", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || t("demoFailed"));
+        setDemoLoading(false);
+        return;
+      }
+      redirectAfterLogin();
+    } catch {
+      setError(t("demoFailed"));
+      setDemoLoading(false);
+    }
   };
 
   return (
@@ -151,12 +188,35 @@ function LoginPageInner() {
 
             <Button
               type="submit"
-              disabled={loading}
+              disabled={loading || demoLoading}
               className="mt-2 h-10 w-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {loading ? t('signingIn') : t('signIn')}
             </Button>
           </form>
+
+          {demoEnabled ? (
+            <div className="mt-4 space-y-2">
+              <div className="relative flex items-center gap-3">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs text-muted-foreground">{t("or")}</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={loading || demoLoading}
+                onClick={() => void handleDemoLogin()}
+                className="h-10 w-full border-primary/30 bg-primary/5 text-foreground hover:bg-primary/10"
+              >
+                <Sparkles className="mr-2 size-4 text-primary" />
+                {demoLoading ? t("demoSigningIn") : t("demoLogin")}
+              </Button>
+              <p className="text-center text-xs text-muted-foreground">
+                {t("demoHint")}
+              </p>
+            </div>
+          ) : null}
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {t('noAccount')}{" "}

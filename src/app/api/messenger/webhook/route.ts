@@ -5,6 +5,7 @@ import { verifyMetaWebhookSignature } from "@/lib/whatsapp/webhook-signature";
 import { isUniqueViolation } from "@/lib/contacts/dedupe";
 import { fetchMessengerUserName } from "@/lib/messenger/meta-api";
 import { ensureContactLeadTag } from "@/lib/contacts/ensure-lead-tag";
+import { fireCapiForInbound } from "@/lib/facebook/capi";
 
 export const maxDuration = 60;
 
@@ -181,15 +182,21 @@ async function processMessengerWebhook(body: {
       if (existingMsg) continue;
 
       let contactId: string | null = null;
+      let wasCreated = false;
       const { data: existingContact } = await db
         .from("contacts")
-        .select("id, name")
+        .select("id, name, email, phone")
         .eq("account_id", config.account_id)
         .eq("messenger_psid", psid)
         .maybeSingle();
 
+      let contactEmail: string | null = null;
+      let contactPhone: string | null = null;
+
       if (existingContact) {
         contactId = existingContact.id;
+        contactEmail = existingContact.email ?? null;
+        contactPhone = existingContact.phone ?? null;
       } else {
         let displayName =
           (pageToken &&
@@ -209,24 +216,29 @@ async function processMessengerWebhook(body: {
             channel: "messenger",
             name: displayName,
           })
-          .select("id")
+          .select("id, email, phone")
           .single();
 
         if (createErr) {
           if (isUniqueViolation(createErr)) {
             const { data: raced } = await db
               .from("contacts")
-              .select("id")
+              .select("id, email, phone")
               .eq("account_id", config.account_id)
               .eq("messenger_psid", psid)
               .maybeSingle();
             contactId = raced?.id ?? null;
+            contactEmail = raced?.email ?? null;
+            contactPhone = raced?.phone ?? null;
           } else {
             console.error("[messenger/webhook] contact create", createErr);
             continue;
           }
         } else {
           contactId = created.id;
+          contactEmail = created.email ?? null;
+          contactPhone = created.phone ?? null;
+          wasCreated = true;
           await ensureContactLeadTag(db, {
             accountId: config.account_id,
             userId: config.user_id,
@@ -238,6 +250,7 @@ async function processMessengerWebhook(body: {
       if (!contactId) continue;
 
       let conversationId: string | null = null;
+      let isFirstInbound = false;
       const { data: existingConv } = await db
         .from("conversations")
         .select("id, unread_count")
@@ -248,6 +261,13 @@ async function processMessengerWebhook(body: {
 
       if (existingConv) {
         conversationId = existingConv.id;
+        const { count: priorCustomerMsgCount } = await db
+          .from("messages")
+          .select("id", { count: "exact", head: true })
+          .eq("conversation_id", conversationId)
+          .eq("sender_type", "customer");
+        isFirstInbound = (priorCustomerMsgCount ?? 0) === 0;
+
         await db
           .from("conversations")
           .update({
@@ -259,6 +279,7 @@ async function processMessengerWebhook(body: {
           })
           .eq("id", conversationId);
       } else {
+        isFirstInbound = true;
         const { data: createdConv, error: convErr } = await db
           .from("conversations")
           .insert({
@@ -285,6 +306,12 @@ async function processMessengerWebhook(body: {
               .maybeSingle();
             conversationId = raced?.id ?? null;
             if (conversationId) {
+              const { count: priorCustomerMsgCount } = await db
+                .from("messages")
+                .select("id", { count: "exact", head: true })
+                .eq("conversation_id", conversationId)
+                .eq("sender_type", "customer");
+              isFirstInbound = (priorCustomerMsgCount ?? 0) === 0;
               await db
                 .from("conversations")
                 .update({
@@ -315,7 +342,23 @@ async function processMessengerWebhook(body: {
       });
       if (msgErr) {
         console.error("[messenger/webhook] message insert", msgErr);
+        continue;
       }
+
+      await fireCapiForInbound({
+        accountId: config.account_id,
+        contactId,
+        channel: "messenger",
+        messageId: mid,
+        phone: contactPhone,
+        email: contactEmail,
+        messengerPsid: psid,
+        wasCreated,
+        isFirstInbound,
+        eventTime: event.timestamp
+          ? Math.floor(event.timestamp / 1000)
+          : undefined,
+      });
     }
   }
 }

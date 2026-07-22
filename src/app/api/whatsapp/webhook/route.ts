@@ -14,6 +14,7 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { fireCapiForInbound } from '@/lib/facebook/capi'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -60,6 +61,17 @@ interface WhatsAppMessage {
   }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
+  /**
+   * Present when the conversation originated from a Click-to-WhatsApp ad.
+   * `ctwa_clid` is required for strong CTWA attribution in Meta CAPI.
+   */
+  referral?: {
+    source_url?: string
+    source_type?: string
+    source_id?: string
+    body?: string
+    ctwa_clid?: string
+  }
 }
 
 interface WhatsAppWebhookEntry {
@@ -301,7 +313,7 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           // inserts that need it for NOT NULL FK compliance. Always
           // the admin who saved the WhatsApp config.
           config.user_id,
-          decryptedAccessToken
+          decryptedAccessToken,
         )
       }
     }
@@ -569,17 +581,19 @@ async function processMessage(
   // (contacts, conversations). Always the admin who saved the
   // WhatsApp config; the choice is arbitrary post-017 but stable.
   configOwnerUserId: string,
-  accessToken: string
+  accessToken: string,
 ) {
   const senderPhone = normalizePhone(message.from)
   const contactName = contact.profile.name
+  const ctwaClid = message.referral?.ctwa_clid?.trim() || null
 
   // Find or create contact
   const contactOutcome = await findOrCreateContact(
     accountId,
     configOwnerUserId,
     senderPhone,
-    contactName
+    contactName,
+    ctwaClid,
   )
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
@@ -825,6 +839,20 @@ async function processMessage(
     content_type: contentType,
     text: contentText,
   })
+
+  // Meta Conversions API — fail-open; never block inbound ingestion.
+  await fireCapiForInbound({
+    accountId,
+    contactId: contactRecord.id,
+    channel: 'whatsapp',
+    messageId: message.id,
+    phone: contactRecord.phone ?? senderPhone,
+    email: contactRecord.email ?? null,
+    ctwaClid: ctwaClid || contactRecord.ctwa_clid || null,
+    wasCreated: contactOutcome.wasCreated,
+    isFirstInbound: isFirstInboundMessage,
+    eventTime: parseInt(message.timestamp, 10) || undefined,
+  })
 }
 
 async function parseMessageContent(
@@ -986,7 +1014,8 @@ async function findOrCreateContact(
   accountId: string,
   configOwnerUserId: string,
   phone: string,
-  name: string
+  name: string,
+  ctwaClid: string | null = null,
 ): Promise<ContactOutcome | null> {
   // Find an existing contact for this account by phone. The shared
   // helper pre-filters in SQL by the last-8-digit suffix (so we don't
@@ -1002,13 +1031,29 @@ async function findOrCreateContact(
 
   if (existingContact) {
     // Update name if it changed
+    const patch: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    }
     if (name && name !== existingContact.name) {
+      patch.name = name
+    }
+    if (ctwaClid && !existingContact.ctwa_clid) {
+      patch.ctwa_clid = ctwaClid
+    }
+    if (Object.keys(patch).length > 1) {
       await supabaseAdmin()
         .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
+        .update(patch)
         .eq('id', existingContact.id)
     }
-    return { contact: existingContact, wasCreated: false }
+    return {
+      contact: {
+        ...existingContact,
+        ...(patch.name ? { name: patch.name } : {}),
+        ...(patch.ctwa_clid ? { ctwa_clid: patch.ctwa_clid } : {}),
+      },
+      wasCreated: false,
+    }
   }
 
   // Create new contact. account_id is the tenancy column;
@@ -1023,6 +1068,7 @@ async function findOrCreateContact(
       phone,
       name: name || phone,
       channel: 'whatsapp',
+      ...(ctwaClid ? { ctwa_clid: ctwaClid } : {}),
     })
     .select()
     .single()

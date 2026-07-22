@@ -78,6 +78,7 @@ export function WhatsAppConfig() {
   const lastRegistrationError = config?.last_registration_error ?? null;
 
   const [verifyingRegistration, setVerifyingRegistration] = useState(false);
+  const [registeringPin, setRegisteringPin] = useState(false);
   type RegistrationProbe = {
     live: boolean;
     checks: Record<string, boolean | null>;
@@ -333,6 +334,41 @@ export function WhatsAppConfig() {
     }
   }
 
+  async function handleRegisterWithPin() {
+    const trimmed = pin.trim();
+    if (trimmed.length !== 6) {
+      toast.error('Enter the 6-digit two-step PIN from Meta WhatsApp Manager');
+      return;
+    }
+    if (!config) {
+      toast.error('Save WhatsApp credentials first');
+      return;
+    }
+
+    setRegisteringPin(true);
+    try {
+      const res = await fetch('/api/whatsapp/config/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin: trimmed }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Registration failed', { duration: 12000 });
+        if (accountId) await fetchConfig(accountId);
+        return;
+      }
+      toast.success(data.message || 'Number registered with Meta');
+      setPin('');
+      if (accountId) await fetchConfig(accountId);
+    } catch (err) {
+      console.error('register-with-pin failed:', err);
+      toast.error('Could not reach the registration endpoint.');
+    } finally {
+      setRegisteringPin(false);
+    }
+  }
+
   async function handleReset() {
     if (!confirm('This will delete the current WhatsApp config so you can re-enter it. Continue?')) {
       return;
@@ -481,20 +517,38 @@ export function WhatsAppConfig() {
                     : t('notRegistered')}
                 </AlertTitle>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleVerifyRegistration}
-                disabled={verifyingRegistration}
-                className="border-border bg-transparent text-foreground hover:bg-muted h-7"
-              >
-                {verifyingRegistration ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : (
-                  <Zap className="size-3.5" />
+              <div className="flex items-center gap-2 flex-wrap">
+                {!isRegistered && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleRegisterWithPin}
+                    disabled={registeringPin || verifyingRegistration || pin.trim().length !== 6}
+                    className="h-7"
+                  >
+                    {registeringPin ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Zap className="size-3.5" />
+                    )}
+                    {registeringPin ? t('registering') : t('registerWithPin')}
+                  </Button>
                 )}
-                {t('verifyWithMeta')}
-              </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleVerifyRegistration}
+                  disabled={verifyingRegistration || registeringPin}
+                  className="border-border bg-transparent text-foreground hover:bg-muted h-7"
+                >
+                  {verifyingRegistration ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : (
+                    <Zap className="size-3.5" />
+                  )}
+                  {t('verifyWithMeta')}
+                </Button>
+              </div>
             </div>
             <AlertDescription className="text-muted-foreground mt-2 text-xs leading-relaxed">
               {isRegistered ? (
