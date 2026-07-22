@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { encrypt, decrypt } from "@/lib/whatsapp/encryption";
-import { fetchMessengerPageProfile } from "@/lib/messenger/meta-api";
+import {
+  fetchMessengerPageProfile,
+  subscribeMessengerPageToApp,
+} from "@/lib/messenger/meta-api";
 
 async function resolveAccountId(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -68,10 +71,29 @@ export async function GET() {
     try {
       const token = decrypt(config.access_token);
       const page = await fetchMessengerPageProfile(token);
+
+      // Repair Page→app webhook subscription (idempotent). Without this,
+      // Meta can keep the app callback URL while the Page delivers nothing.
+      let subscribed = false;
+      let subscribe_error: string | null = null;
+      try {
+        await subscribeMessengerPageToApp({
+          pageId: page.id,
+          pageAccessToken: token,
+        });
+        subscribed = true;
+      } catch (subErr) {
+        subscribe_error =
+          subErr instanceof Error ? subErr.message : String(subErr);
+        console.warn("[messenger/config] subscribed_apps repair failed:", subscribe_error);
+      }
+
       return NextResponse.json({
         connected: true,
         page_info: { id: page.id, name: page.name },
         status: config.status,
+        subscribed,
+        subscribe_error,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Meta API error";
@@ -219,9 +241,27 @@ export async function POST(request: Request) {
       }
     }
 
+    // Subscribe Page to this app's webhook — same pattern as WhatsApp
+    // WABA subscribed_apps. Non-fatal: credentials are already saved.
+    let subscribed = false;
+    let subscribe_error: string | null = null;
+    try {
+      await subscribeMessengerPageToApp({
+        pageId: pageInfo.id,
+        pageAccessToken: access_token,
+      });
+      subscribed = true;
+    } catch (subErr) {
+      subscribe_error =
+        subErr instanceof Error ? subErr.message : String(subErr);
+      console.warn("[messenger/config] subscribed_apps failed (non-fatal):", subscribe_error);
+    }
+
     return NextResponse.json({
       success: true,
       page_info: { id: pageInfo.id, name: pageInfo.name },
+      subscribed,
+      subscribe_error,
     });
   } catch (err) {
     console.error("[messenger/config POST]", err);

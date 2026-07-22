@@ -179,6 +179,55 @@ export async function sendMessengerText(params: {
   return { messageId: json.message_id };
 }
 
+/**
+ * Subscribe a Facebook Page to this Meta app's webhook (Page object).
+ * Idempotent — Meta returns success even when already subscribed.
+ *
+ * Without this call, the app-level webhook callback can be active while
+ * the Page still delivers nothing (common after token regenerate / app
+ * reconnect). Requires a Page Access Token with `pages_messaging`.
+ *
+ * Docs: https://developers.facebook.com/docs/graph-api/reference/page/subscribed_apps
+ */
+export async function subscribeMessengerPageToApp(params: {
+  pageId: string;
+  pageAccessToken: string;
+  /** Defaults to the fields our inbound webhook handles. */
+  subscribedFields?: string[];
+}): Promise<void> {
+  const fields = (
+    params.subscribedFields ?? [
+      "messages",
+      "messaging_postbacks",
+      "message_deliveries",
+      "message_reads",
+    ]
+  ).join(",");
+
+  const body = new URLSearchParams();
+  body.set("subscribed_fields", fields);
+
+  const res = await fetch(`${GRAPH}/${params.pageId}/subscribed_apps`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${params.pageAccessToken}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+  const json = (await res.json()) as {
+    success?: boolean;
+    error?: { message?: string; code?: number };
+  };
+  if (!res.ok || json.success !== true) {
+    throw new Error(
+      json.error?.message
+        ? `Page subscribed_apps failed: ${json.error.message}`
+        : `Page subscribed_apps failed (${res.status})`,
+    );
+  }
+}
+
 /** Best-effort display name from Messenger Profile API. */
 export async function fetchMessengerUserName(params: {
   pageAccessToken: string;

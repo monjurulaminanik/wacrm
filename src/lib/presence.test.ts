@@ -4,6 +4,7 @@ import {
   OFFLINE_AFTER_MS,
   derivePresence,
   formatLastSeen,
+  isTransientPresenceError,
   presenceLabel,
   summarize,
 } from "./presence";
@@ -83,5 +84,36 @@ describe("summarize", () => {
 
   it("returns zeroes for an empty roster", () => {
     expect(summarize([])).toEqual({ online: 0, away: 0, offline: 0 });
+  });
+});
+
+describe("isTransientPresenceError", () => {
+  it("treats Firefox/Chrome/Safari abort and offline noise as soft", () => {
+    expect(
+      isTransientPresenceError(
+        "TypeError: NetworkError when attempting to fetch resource.",
+      ),
+    ).toBe(true);
+    expect(isTransientPresenceError("TypeError: Failed to fetch")).toBe(true);
+    expect(
+      isTransientPresenceError("AbortError: The operation was aborted"),
+    ).toBe(true);
+    expect(
+      isTransientPresenceError(
+        "AbortError: Request was aborted (timeout or manual cancellation)",
+      ),
+    ).toBe(true);
+    expect(isTransientPresenceError("TypeError: Load failed")).toBe(true);
+  });
+
+  it("still surfaces real RPC / PostgREST failures", () => {
+    expect(isTransientPresenceError("Unauthorized")).toBe(false);
+    expect(isTransientPresenceError("No account for caller")).toBe(false);
+    expect(
+      isTransientPresenceError("Could not find the function public.touch_presence"),
+    ).toBe(false);
+    expect(isTransientPresenceError("permission denied for function")).toBe(
+      false,
+    );
   });
 });

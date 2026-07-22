@@ -358,7 +358,9 @@ async function processMessengerWebhook(body: {
         eventTime: event.timestamp
           ? Math.floor(event.timestamp / 1000)
           : undefined,
-      });
+      }).catch((err) =>
+        console.error("[messenger/webhook] capi fail-open", err),
+      );
     }
   }
 }

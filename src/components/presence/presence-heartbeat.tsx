@@ -4,7 +4,12 @@ import { useEffect, useRef } from "react";
 
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { HEARTBEAT_MS, IDLE_AFTER_MS, type StoredPresence } from "@/lib/presence";
+import {
+  HEARTBEAT_MS,
+  IDLE_AFTER_MS,
+  isTransientPresenceError,
+  type StoredPresence,
+} from "@/lib/presence";
 
 /**
  * PresenceHeartbeat — headless. Mount ONCE per signed-in dashboard tab
@@ -34,6 +39,7 @@ export function PresenceHeartbeat() {
     if (!accountId) return;
 
     const supabase = createClient();
+    const abort = new AbortController();
     let cancelled = false;
     let lastBeatAt = 0;
     lastActivityRef.current = Date.now();
@@ -49,21 +55,24 @@ export function PresenceHeartbeat() {
     };
 
     const beat = async () => {
-      if (cancelled) return;
+      if (cancelled || abort.signal.aborted) return;
       // Coalesce bursts: a tab refocus fires visibilitychange AND focus
       // together, so skip a beat within 1s of the last to avoid two RPCs
       // in the same frame. The 30s interval is never affected.
       const t = Date.now();
       if (t - lastBeatAt < 1_000) return;
       lastBeatAt = t;
-      const { error } = await supabase.rpc("touch_presence", {
-        p_status: currentStatus(),
-      });
-      if (error && !cancelled) {
-        // Non-fatal: presence is best-effort. Log once per failure so a
-        // misconfigured RPC is visible without spamming.
-        console.error("[PresenceHeartbeat] touch_presence failed:", error.message);
-      }
+
+      const { error } = await supabase
+        .rpc("touch_presence", { p_status: currentStatus() })
+        .abortSignal(abort.signal);
+
+      if (!error || cancelled || abort.signal.aborted) return;
+      // Firefox reports TypeError "NetworkError when attempting to fetch
+      // resource" when a heartbeat is aborted by tab close, HMR remount,
+      // or navigation — presence is best-effort, so don't spam the console.
+      if (isTransientPresenceError(error.message)) return;
+      console.error("[PresenceHeartbeat] touch_presence failed:", error.message);
     };
 
     // Activity listeners. `passive` so we never block scroll/input.
@@ -79,7 +88,8 @@ export function PresenceHeartbeat() {
 
     // Returning to the tab should beat immediately so a member flips
     // back to online without a 30s wait. The debounce in beat() absorbs
-    // the visibilitychange + focus double-fire.
+    // the visibilitychange + focus double-fire. Going hidden also beats
+    // (as 'away') so teammates see idle promptly.
     const onReturn = () => {
       if (!document.hidden) markActive();
       void beat();
@@ -87,17 +97,27 @@ export function PresenceHeartbeat() {
     document.addEventListener("visibilitychange", onReturn);
     window.addEventListener("focus", onReturn);
 
+    // pagehide fires before React cleanup on unload/navigation; mark
+    // cancelled early so an in-flight beat's NetworkError is ignored.
+    const onPageHide = () => {
+      cancelled = true;
+      abort.abort();
+    };
+    window.addEventListener("pagehide", onPageHide);
+
     void beat();
     const interval = setInterval(() => void beat(), HEARTBEAT_MS);
 
     return () => {
       cancelled = true;
+      abort.abort();
       clearInterval(interval);
       activityEvents.forEach((e) =>
         document.removeEventListener(e, markActive),
       );
       document.removeEventListener("visibilitychange", onReturn);
       window.removeEventListener("focus", onReturn);
+      window.removeEventListener("pagehide", onPageHide);
     };
   }, [accountId]);
 

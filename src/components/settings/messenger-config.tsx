@@ -102,6 +102,11 @@ export function MessengerConfig() {
         return;
       }
       toast.success(`Connected: ${payload.page_info?.name || 'Facebook Page'}`);
+      if (payload.subscribed === false && payload.subscribe_error) {
+        toast.error(
+          `Saved, but Page webhook subscribe failed: ${payload.subscribe_error}`,
+        );
+      }
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Save failed');
@@ -116,7 +121,15 @@ export function MessengerConfig() {
       const res = await fetch('/api/messenger/config');
       const payload = await res.json();
       if (payload.connected) {
-        toast.success(`OK — ${payload.page_info?.name} (${payload.page_info?.id})`);
+        const subOk = payload.subscribed !== false;
+        toast.success(
+          subOk
+            ? `OK — ${payload.page_info?.name} (${payload.page_info?.id}) · webhook subscribed`
+            : `Token OK — ${payload.page_info?.name}, but Page webhook subscribe failed`,
+        );
+        if (!subOk && payload.subscribe_error) {
+          toast.error(String(payload.subscribe_error));
+        }
         setConnected(true);
         setPageName(payload.page_info?.name || null);
       } else {
@@ -279,10 +292,10 @@ export function MessengerConfig() {
           </div>
           <ol className="list-decimal pl-5 text-sm text-muted-foreground space-y-1">
             <li>Create / open your Meta App with Messenger product</li>
-            <li>Generate a Page Access Token for your Facebook Page</li>
-            <li>Add webhook callback URL above + your Verify Token</li>
-            <li>Subscribe to field: messages</li>
-            <li>Send a test message to the Page — it should appear in Inbox</li>
+            <li>Generate a Page Access Token for your Facebook Page (starts with EAA)</li>
+            <li>Add webhook callback URL above + your Verify Token; subscribe field: messages</li>
+            <li>Save Configuration (or Test Connection) — CRM also calls Page subscribed_apps</li>
+            <li>Send a test message to the Page — it should appear in Inbox → Messenger</li>
           </ol>
         </CardContent>
       </Card>

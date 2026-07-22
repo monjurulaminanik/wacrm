@@ -119,3 +119,25 @@ export function summarize(statuses: PresenceStatus[]): {
   for (const s of statuses) counts[s] += 1;
   return counts;
 }
+
+/**
+ * True for browser abort / offline noise from best-effort heartbeats.
+ * Real PostgREST/RPC failures (missing function, RLS, Unauthorized,
+ * etc.) return false so they still get logged.
+ *
+ * Firefox in particular surfaces aborted fetches as
+ * `TypeError: NetworkError when attempting to fetch resource.`
+ */
+export function isTransientPresenceError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("networkerror") ||
+    m.includes("failed to fetch") ||
+    m.includes("fetch failed") ||
+    m.includes("aborterror") ||
+    m.includes("the operation was aborted") ||
+    m.includes("request was aborted") ||
+    m.includes("network request failed") ||
+    m.includes("load failed")
+  );
+}
