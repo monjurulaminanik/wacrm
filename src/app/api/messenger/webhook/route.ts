@@ -110,6 +110,11 @@ export async function POST(request: Request) {
   const signature = request.headers.get("x-hub-signature-256");
 
   if (!verifyMetaWebhookSignature(rawBody, signature)) {
+    // Common when Messenger uses a different Meta app than WhatsApp:
+    // set MESSENGER_META_APP_SECRET to that app's App Secret.
+    console.warn(
+      "[messenger/webhook] invalid signature — check META_APP_SECRET / MESSENGER_META_APP_SECRET",
+    );
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 

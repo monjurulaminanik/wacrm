@@ -42,6 +42,27 @@ export function normalizeConversations(
   return rows.map(normalizeConversation);
 }
 
+/**
+ * Newest activity first. Null / missing `last_message_at` sinks to the
+ * bottom so empty threads never float above live chats. Used by the
+ * inbox list and realtime patches — PostgREST `ORDER BY … DESC` alone
+ * is not enough after in-place state updates.
+ */
+export function sortConversationsByLatest(
+  conversations: Conversation[],
+): Conversation[] {
+  return [...conversations].sort((a, b) => {
+    const aAt = a.last_message_at ? Date.parse(a.last_message_at) : NaN;
+    const bAt = b.last_message_at ? Date.parse(b.last_message_at) : NaN;
+    const aOk = Number.isFinite(aAt);
+    const bOk = Number.isFinite(bAt);
+    if (aOk && bOk) return bAt - aAt;
+    if (aOk) return -1;
+    if (bOk) return 1;
+    return 0;
+  });
+}
+
 export interface ContactFilters {
   /** Tag ids; a conversation matches if its contact has ANY of them (OR). */
   tagIds: string[];

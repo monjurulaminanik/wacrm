@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   matchesContactFilters,
   normalizeConversation,
+  sortConversationsByLatest,
 } from "./conversations";
 import type { Conversation } from "@/types";
 
@@ -97,6 +98,29 @@ describe("matchesContactFilters", () => {
     expect(
       matchesContactFilters(conv, { tagIds: ["tX"], company: "Acme" }),
     ).toBe(false);
+  });
+});
+
+describe("sortConversationsByLatest", () => {
+  it("orders by last_message_at descending and sinks nulls", () => {
+    const older = {
+      ...makeConversation(null),
+      id: "older",
+      last_message_at: "2026-07-25T10:00:00.000Z",
+    };
+    const newer = {
+      ...makeConversation(null),
+      id: "newer",
+      last_message_at: "2026-07-25T20:00:00.000Z",
+    };
+    const empty = {
+      ...makeConversation(null),
+      id: "empty",
+      last_message_at: undefined,
+    };
+    expect(
+      sortConversationsByLatest([older, empty, newer]).map((c) => c.id),
+    ).toEqual(["newer", "older", "empty"]);
   });
 });
 
