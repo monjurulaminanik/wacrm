@@ -65,15 +65,12 @@ function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function graphGet<T>(url: string): Promise<T> {
+async function graphGet(url: string): Promise<unknown> {
   const res = await fetch(url);
-  const json = (await res.json()) as T & {
-    error?: { message?: string; code?: number };
-  };
+  const json: unknown = await res.json();
   if (!res.ok) {
-    const msg =
-      (json as { error?: { message?: string } }).error?.message ||
-      `Graph HTTP ${res.status}`;
+    const err = json as { error?: { message?: string } } | null;
+    const msg = err?.error?.message || `Graph HTTP ${res.status}`;
     throw new Error(msg);
   }
   return json;
@@ -87,17 +84,20 @@ async function fetchPaged<T extends object>(
   },
 ): Promise<T[]> {
   const rows: T[] = [];
-  let url: string | null = firstUrl;
+  let nextUrl: string | null = firstUrl;
   let pages = 0;
-  while (url && pages < opts.maxPages) {
+  while (nextUrl && pages < opts.maxPages) {
     pages += 1;
-    // Cast after fetch to avoid TS circular inference on generic PagePayload.
-    const raw = await graphGet<Record<string, unknown>>(url);
-    const data = (raw as { data?: T[] }).data;
-    const batch = data || [];
+    const currentUrl = nextUrl;
+    const rawUnknown = await graphGet(currentUrl);
+    const raw = rawUnknown as {
+      data?: T[];
+      paging?: { next?: string };
+    };
+    const batch = raw.data || [];
     rows.push(...batch);
     if (opts.stopWhen && batch.some(opts.stopWhen)) break;
-    url = (raw as { paging?: { next?: string } }).paging?.next || null;
+    nextUrl = raw.paging?.next || null;
   }
   return rows;
 }
