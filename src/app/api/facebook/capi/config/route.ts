@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/whatsapp/encryption";
-import { sendCapiEvent } from "@/lib/facebook/capi";
+import {
+  formatMetaCapiError,
+  sanitizeTestEventCode,
+  sendCapiEvent,
+  type MessagingChannel,
+} from "@/lib/facebook/capi";
 
 async function resolveAccountId(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -154,7 +159,8 @@ export async function POST(request: Request) {
       user_id: user.id,
       account_id: accountId,
       pixel_id: pixelId,
-      test_event_code: test_event_code?.trim() || null,
+      // Drop UI placeholders like TEST12345 — never persist fakes.
+      test_event_code: sanitizeTestEventCode(test_event_code),
       enabled: Boolean(enabled),
       send_lead_on_first_message:
         send_lead_on_first_message !== undefined
@@ -243,6 +249,8 @@ export async function DELETE() {
 
 /**
  * PUT — send a Test event to Meta Events Manager (uses saved config).
+ * Picks Messenger when Page ID is available, else WhatsApp when WABA is set.
+ * Does not require CAPI "enabled" — Save and Test stay independent.
  */
 export async function PUT() {
   try {
@@ -283,33 +291,88 @@ export async function PUT() {
       );
     }
 
+    let wabaId = (config.waba_id as string | null)?.trim() || null;
+    let pageId = (config.page_id as string | null)?.trim() || null;
+
+    if (!wabaId) {
+      const { data: wa } = await supabase
+        .from("whatsapp_config")
+        .select("waba_id")
+        .eq("account_id", accountId)
+        .maybeSingle();
+      wabaId = wa?.waba_id?.trim() || null;
+    }
+    if (!pageId) {
+      const { data: ms } = await supabase
+        .from("messenger_config")
+        .select("page_id")
+        .eq("account_id", accountId)
+        .maybeSingle();
+      pageId = ms?.page_id?.trim() || null;
+    }
+
+    // Prefer Messenger when Page ID is present (common for CTM / RingGo Page ads);
+    // otherwise WhatsApp when WABA is available.
+    let channel: MessagingChannel | null = null;
+    if (pageId) channel = "messenger";
+    else if (wabaId) channel = "whatsapp";
+
+    if (!channel) {
+      const msg =
+        "Fill Page ID (Messenger) or WABA ID (WhatsApp) before Send test — Meta rejects business_messaging events without the channel id.";
+      await supabase
+        .from("facebook_capi_config")
+        .update({
+          last_error: msg.slice(0, 500),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("account_id", accountId);
+      return NextResponse.json({ ok: false, error: msg }, { status: 200 });
+    }
+
     const eventId = `test_${Date.now()}`;
     const result = await sendCapiEvent({
       pixelId: config.pixel_id,
       accessToken: token,
-      testEventCode: config.test_event_code,
+      testEventCode: sanitizeTestEventCode(config.test_event_code),
       eventName: "LeadSubmitted",
       eventId,
-      channel: "whatsapp",
+      channel,
       user: {
         contactId: `test-${accountId}`,
-        phone: "8801700000000",
-        wabaId: config.waba_id,
+        phone: channel === "whatsapp" ? "8801700000000" : null,
+        wabaId: channel === "whatsapp" ? wabaId : null,
+        pageId: channel === "messenger" ? pageId : null,
+        // Synthetic PSID for connectivity check only (Events Manager Test tab).
+        messengerPsid:
+          channel === "messenger" ? `9${String(Date.now()).slice(-14)}` : null,
       },
     });
+
+    const errorText = result.ok
+      ? null
+      : (
+          result.error ||
+          formatMetaCapiError(result.raw, "test failed")
+        ).slice(0, 500);
 
     await supabase
       .from("facebook_capi_config")
       .update({
         last_event_at: result.ok ? new Date().toISOString() : undefined,
-        last_error: result.ok ? null : (result.error || "test failed").slice(0, 500),
+        last_error: errorText,
         updated_at: new Date().toISOString(),
       })
       .eq("account_id", accountId);
 
     if (!result.ok) {
       return NextResponse.json(
-        { ok: false, error: result.error, raw: result.raw },
+        {
+          ok: false,
+          error: errorText,
+          channel,
+          raw: result.raw,
+        },
         { status: 200 },
       );
     }
@@ -318,6 +381,7 @@ export async function PUT() {
       ok: true,
       events_received: result.eventsReceived,
       event_id: eventId,
+      channel,
     });
   } catch (err) {
     console.error("[facebook/capi/config PUT]", err);

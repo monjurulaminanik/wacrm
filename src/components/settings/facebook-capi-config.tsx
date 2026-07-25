@@ -74,7 +74,12 @@ export function FacebookCapiConfig() {
       setPixelId(data.pixel_id || '');
       setAccessToken(data.has_token ? MASK : '');
       setTokenEdited(false);
-      setTestEventCode(data.test_event_code || '');
+      setTestEventCode(
+        data.test_event_code &&
+          !/^TEST12345$/i.test(String(data.test_event_code).trim())
+          ? data.test_event_code
+          : '',
+      );
       setSendLead(data.send_lead_on_first_message !== false);
       setSendQualified(data.send_qualified_lead_on_new_contact !== false);
       setWabaId(data.waba_id || '');
@@ -105,13 +110,18 @@ export function FacebookCapiConfig() {
     }
     setSaving(true);
     try {
+      const codeRaw = testEventCode.trim();
+      const codeSafe =
+        !codeRaw || /^(TEST12345|TEST123|TEST)$/i.test(codeRaw)
+          ? null
+          : codeRaw;
       const res = await fetch('/api/facebook/capi/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pixel_id: pixelId.trim(),
           access_token: tokenToSend && tokenToSend !== MASK ? tokenToSend : undefined,
-          test_event_code: testEventCode.trim() || null,
+          test_event_code: codeSafe,
           enabled,
           send_lead_on_first_message: sendLead,
           send_qualified_lead_on_new_contact: sendQualified,

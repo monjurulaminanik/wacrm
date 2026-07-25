@@ -56,6 +56,77 @@ export interface CapiSendResult {
   raw?: unknown;
 }
 
+/** Meta Graph error blob shape (partial). */
+interface MetaGraphErrorBody {
+  error?: {
+    message?: string;
+    error_user_title?: string;
+    error_user_msg?: string;
+    error_subcode?: number;
+    code?: number;
+  };
+}
+
+/**
+ * Prefer Meta's human-readable error_user_msg over the opaque
+ * "Invalid parameter" message field.
+ */
+export function formatMetaCapiError(raw: unknown, fallback?: string): string {
+  const err = (raw as MetaGraphErrorBody | null)?.error;
+  if (!err) return fallback || "Meta CAPI error";
+  const userMsg = err.error_user_msg?.trim();
+  const userTitle = err.error_user_title?.trim();
+  const message = err.message?.trim();
+  if (userMsg && userTitle && userTitle !== userMsg) {
+    return `${userTitle}: ${userMsg}`;
+  }
+  if (userMsg) return userMsg;
+  if (userTitle && message && userTitle !== message) {
+    return `${userTitle}: ${message}`;
+  }
+  return userTitle || message || fallback || "Meta CAPI error";
+}
+
+/**
+ * UI placeholder / obvious fakes must not be sent as test_event_code —
+ * Meta rejects unknown codes with a generic Invalid parameter.
+ */
+export function sanitizeTestEventCode(
+  code: string | null | undefined,
+): string | null {
+  const trimmed = code?.trim() || "";
+  if (!trimmed) return null;
+  const upper = trimmed.toUpperCase();
+  if (
+    upper === "TEST12345" ||
+    upper === "TEST123" ||
+    upper === "TEST" ||
+    upper === "YOUR_TEST_EVENT_CODE"
+  ) {
+    return null;
+  }
+  return trimmed;
+}
+
+/** Channel-specific required user_data before calling Meta. */
+export function validateCapiChannelUser(
+  channel: MessagingChannel,
+  user: CapiUserIdentifiers,
+): string | null {
+  if (channel === "whatsapp" && !user.wabaId?.trim()) {
+    return "WhatsApp CAPI events require a WABA ID (fill WABA ID or connect WhatsApp settings).";
+  }
+  if (channel === "messenger") {
+    if (!user.pageId?.trim()) {
+      return "Messenger CAPI events require a Page ID (fill Page ID or connect Messenger settings).";
+    }
+    if (!user.messengerPsid?.trim()) {
+      return "Messenger CAPI events require a page-scoped user id (PSID) from the conversation.";
+    }
+  }
+  return null;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let _admin: any = null;
 function adminDb() {
@@ -123,7 +194,13 @@ function buildUserData(
 export async function sendCapiEvent(
   input: SendCapiEventInput,
 ): Promise<CapiSendResult> {
+  const channelError = validateCapiChannelUser(input.channel, input.user);
+  if (channelError) {
+    return { ok: false, error: channelError };
+  }
+
   const eventTime = input.eventTime ?? Math.floor(Date.now() / 1000);
+  const testEventCode = sanitizeTestEventCode(input.testEventCode);
 
   const payload: Record<string, unknown> = {
     data: [
@@ -140,8 +217,8 @@ export async function sendCapiEvent(
     partner_agent: PARTNER_AGENT,
   };
 
-  if (input.testEventCode?.trim()) {
-    payload.test_event_code = input.testEventCode.trim();
+  if (testEventCode) {
+    payload.test_event_code = testEventCode;
   }
 
   const url = `https://graph.facebook.com/${META_API_VERSION}/${encodeURIComponent(input.pixelId)}/events?access_token=${encodeURIComponent(input.accessToken)}`;
@@ -154,10 +231,11 @@ export async function sendCapiEvent(
     });
     const raw = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const message =
-        (raw as { error?: { message?: string } })?.error?.message ||
-        `Meta CAPI HTTP ${res.status}`;
-      return { ok: false, error: message, raw };
+      return {
+        ok: false,
+        error: formatMetaCapiError(raw, `Meta CAPI HTTP ${res.status}`),
+        raw,
+      };
     }
     const eventsReceived = (raw as { events_received?: number })?.events_received;
     return { ok: true, eventsReceived, raw };
@@ -205,7 +283,7 @@ async function loadEnabledConfig(
     configId: data.id,
     pixelId: data.pixel_id,
     accessToken,
-    testEventCode: data.test_event_code,
+    testEventCode: sanitizeTestEventCode(data.test_event_code),
     sendLeadOnFirstMessage: data.send_lead_on_first_message !== false,
     sendQualifiedLeadOnNewContact:
       data.send_qualified_lead_on_new_contact !== false,
