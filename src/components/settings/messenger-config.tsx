@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Copy, Eye, EyeOff, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { Copy, Eye, EyeOff, Loader2, CheckCircle2, XCircle, RefreshCw } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -20,9 +20,11 @@ export function MessengerConfig() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [connected, setConnected] = useState(false);
   const [pageName, setPageName] = useState<string | null>(null);
   const [pageIdSaved, setPageIdSaved] = useState<string | null>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
 
   const [pageId, setPageId] = useState('');
   const [accessToken, setAccessToken] = useState('');
@@ -41,7 +43,7 @@ export function MessengerConfig() {
     setLoading(true);
     const { data } = await supabase
       .from('messenger_config')
-      .select('page_id, page_name, access_token, verify_token, status')
+      .select('page_id, page_name, access_token, verify_token, status, last_synced_at')
       .eq('account_id', accountId)
       .maybeSingle();
 
@@ -53,11 +55,15 @@ export function MessengerConfig() {
       setAccessToken(data.access_token ? MASK : '');
       setTokenEdited(false);
       setConnected(data.status === 'connected');
+      setLastSyncedAt(
+        data.last_synced_at ? String(data.last_synced_at) : null,
+      );
     } else {
       setConnected(false);
       setPageName(null);
       setPageIdSaved(null);
       setHasSavedToken(false);
+      setLastSyncedAt(null);
     }
     setLoading(false);
   }, [accountId, supabase]);
@@ -158,6 +164,34 @@ export function MessengerConfig() {
     setPageName(null);
     setHasSavedToken(false);
     setTokenEdited(false);
+    setLastSyncedAt(null);
+  }
+
+  async function handleSyncNow() {
+    setSyncing(true);
+    try {
+      const res = await fetch('/api/messenger/sync', { method: 'POST' });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(payload.error || 'Sync failed');
+        return;
+      }
+      const imported = Number(payload.messagesImported ?? 0);
+      const skipped = Number(payload.messagesSkipped ?? 0);
+      toast.success(
+        imported > 0
+          ? `Sync done — ${imported} new message(s), ${skipped} already in CRM`
+          : `Sync done — no new messages (${skipped} already in CRM)`,
+      );
+      if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+        toast.message(`Some Graph warnings: ${payload.errors[0]}`);
+      }
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
   }
 
   function copyWebhook() {
@@ -271,11 +305,35 @@ export function MessengerConfig() {
               Test Connection
             </Button>
             {connected ? (
+              <Button
+                variant="outline"
+                onClick={() => void handleSyncNow()}
+                disabled={syncing}
+              >
+                {syncing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-4" />
+                )}
+                Sync now
+              </Button>
+            ) : null}
+            {connected ? (
               <Button variant="destructive" onClick={() => void handleReset()}>
                 Disconnect
               </Button>
             ) : null}
           </div>
+          {connected ? (
+            <p className="text-xs text-muted-foreground">
+              {/* Live + webhook = instant; sync job = must-catch-up */}
+              Live + webhook = তৎক্ষণাৎ Inbox। Sync job (প্রতি ~৫ মিনিট / Sync now) =
+              Meta webhook মিস করলেও মেসেজ CRM-এ ধরবে।
+              {lastSyncedAt
+                ? ` Last sync: ${new Date(lastSyncedAt).toLocaleString()}.`
+                : ' Last sync: not yet.'}
+            </p>
+          ) : null}
         </CardContent>
       </Card>
 
