@@ -91,14 +91,13 @@ async function fetchPaged<T extends object>(
   let pages = 0;
   while (url && pages < opts.maxPages) {
     pages += 1;
-    const json = await graphGet<{
-      data?: T[];
-      paging?: { next?: string };
-    }>(url);
-    const batch = json.data || [];
+    // Cast after fetch to avoid TS circular inference on generic PagePayload.
+    const raw = await graphGet<Record<string, unknown>>(url);
+    const data = (raw as { data?: T[] }).data;
+    const batch = data || [];
     rows.push(...batch);
     if (opts.stopWhen && batch.some(opts.stopWhen)) break;
-    url = json.paging?.next || null;
+    url = (raw as { paging?: { next?: string } }).paging?.next || null;
   }
   return rows;
 }
