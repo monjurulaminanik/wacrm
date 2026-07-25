@@ -2,8 +2,12 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/whatsapp/encryption";
 import {
+  CAPI_MESSENGER_PSID_HINT_BN,
+  enrichCapiErrorForUi,
   formatMetaCapiError,
+  isValidMessengerPsid,
   sanitizeTestEventCode,
+  sendCapiConnectivityTest,
   sendCapiEvent,
   type MessagingChannel,
 } from "@/lib/facebook/capi";
@@ -331,29 +335,67 @@ export async function PUT() {
     }
 
     const eventId = `test_${Date.now()}`;
-    const result = await sendCapiEvent({
-      pixelId: config.pixel_id,
-      accessToken: token,
-      testEventCode: sanitizeTestEventCode(config.test_event_code),
-      eventName: "LeadSubmitted",
-      eventId,
-      channel,
-      user: {
+    const testCode = sanitizeTestEventCode(config.test_event_code);
+
+    // Messenger business_messaging requires a real Page-scoped user id.
+    // Look up a recent contact PSID; never send a synthetic/fake PSID.
+    let realPsid: string | null = null;
+    let realContactId: string | null = null;
+    if (channel === "messenger") {
+      const { data: contact } = await supabase
+        .from("contacts")
+        .select("id, messenger_psid")
+        .eq("account_id", accountId)
+        .not("messenger_psid", "is", null)
+        .neq("messenger_psid", "")
+        .order("updated_at", { ascending: false })
+        .limit(20);
+
+      const match = (contact || []).find((c) =>
+        isValidMessengerPsid(c.messenger_psid as string),
+      );
+      if (match) {
+        realPsid = String(match.messenger_psid).trim();
+        realContactId = match.id as string;
+      }
+    }
+
+    let result;
+    let mode: "messenger" | "whatsapp" | "connectivity" = channel;
+
+    if (channel === "messenger" && !realPsid) {
+      // No real conversation yet — connectivity check without PSID so Save/Test works.
+      mode = "connectivity";
+      result = await sendCapiConnectivityTest({
+        pixelId: config.pixel_id,
+        accessToken: token,
+        testEventCode: testCode,
+        eventId,
         contactId: `test-${accountId}`,
-        phone: channel === "whatsapp" ? "8801700000000" : null,
-        wabaId: channel === "whatsapp" ? wabaId : null,
-        pageId: channel === "messenger" ? pageId : null,
-        // Synthetic PSID for connectivity check only (Events Manager Test tab).
-        messengerPsid:
-          channel === "messenger" ? `9${String(Date.now()).slice(-14)}` : null,
-      },
-    });
+        phone: "8801700000000",
+      });
+    } else {
+      result = await sendCapiEvent({
+        pixelId: config.pixel_id,
+        accessToken: token,
+        testEventCode: testCode,
+        eventName: "LeadSubmitted",
+        eventId,
+        channel,
+        user: {
+          contactId: realContactId || `test-${accountId}`,
+          phone: channel === "whatsapp" ? "8801700000000" : null,
+          wabaId: channel === "whatsapp" ? wabaId : null,
+          pageId: channel === "messenger" ? pageId : null,
+          messengerPsid: channel === "messenger" ? realPsid : null,
+        },
+      });
+    }
 
     const errorText = result.ok
       ? null
-      : (
-          result.error ||
-          formatMetaCapiError(result.raw, "test failed")
+      : enrichCapiErrorForUi(
+          result.error || formatMetaCapiError(result.raw, "test failed"),
         ).slice(0, 500);
 
     await supabase
@@ -371,6 +413,9 @@ export async function PUT() {
           ok: false,
           error: errorText,
           channel,
+          mode,
+          hint_bn:
+            channel === "messenger" ? CAPI_MESSENGER_PSID_HINT_BN : undefined,
           raw: result.raw,
         },
         { status: 200 },
@@ -382,6 +427,10 @@ export async function PUT() {
       events_received: result.eventsReceived,
       event_id: eventId,
       channel,
+      mode,
+      used_real_psid: Boolean(realPsid),
+      hint_bn:
+        mode === "connectivity" ? CAPI_MESSENGER_PSID_HINT_BN : undefined,
     });
   } catch (err) {
     console.error("[facebook/capi/config PUT]", err);

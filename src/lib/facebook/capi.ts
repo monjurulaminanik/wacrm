@@ -108,6 +108,40 @@ export function sanitizeTestEventCode(
   return trimmed;
 }
 
+/**
+ * Meta Messenger PSIDs are long numeric page-scoped ids.
+ * Reject empty, phone-like, or obvious placeholders so we never
+ * send fake page_scoped_user_id values (Meta rejects them).
+ */
+export function isValidMessengerPsid(
+  psid: string | null | undefined,
+): boolean {
+  const s = psid?.trim() || "";
+  if (!s) return false;
+  // Digits only, typical PSID length (Meta page-scoped ids are long)
+  if (!/^\d{10,}$/.test(s)) return false;
+  // Common placeholders / synthetic test patterns
+  if (/^0+$/.test(s) || s === "1234567890" || s.startsWith("000")) return false;
+  return true;
+}
+
+/** Bangla hint when Messenger CAPI needs a real conversation PSID. */
+export const CAPI_MESSENGER_PSID_HINT_BN =
+  "টেস্টের জন্য আগে একটা Messenger মেসেজ থাকলে ভালো";
+
+/**
+ * Append a clear Bangla hint when Meta rejects an invalid PSID.
+ */
+export function enrichCapiErrorForUi(error: string): string {
+  if (
+    /page_scoped_user_id|page-scoped user id|Invalid Page-scoped/i.test(error)
+  ) {
+    if (error.includes(CAPI_MESSENGER_PSID_HINT_BN)) return error;
+    return `${error} — ${CAPI_MESSENGER_PSID_HINT_BN}`;
+  }
+  return error;
+}
+
 /** Channel-specific required user_data before calling Meta. */
 export function validateCapiChannelUser(
   channel: MessagingChannel,
@@ -120,8 +154,10 @@ export function validateCapiChannelUser(
     if (!user.pageId?.trim()) {
       return "Messenger CAPI events require a Page ID (fill Page ID or connect Messenger settings).";
     }
-    if (!user.messengerPsid?.trim()) {
-      return "Messenger CAPI events require a page-scoped user id (PSID) from the conversation.";
+    if (!isValidMessengerPsid(user.messengerPsid)) {
+      return enrichCapiErrorForUi(
+        "Messenger CAPI events require a valid page-scoped user id (PSID) from the conversation.",
+      );
     }
   }
   return null;
@@ -188,8 +224,42 @@ function buildUserData(
   return userData;
 }
 
+async function postCapiPayload(
+  pixelId: string,
+  accessToken: string,
+  payload: Record<string, unknown>,
+): Promise<CapiSendResult> {
+  const url = `https://graph.facebook.com/${META_API_VERSION}/${encodeURIComponent(pixelId)}/events?access_token=${encodeURIComponent(accessToken)}`;
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const raw = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: enrichCapiErrorForUi(
+          formatMetaCapiError(raw, `Meta CAPI HTTP ${res.status}`),
+        ),
+        raw,
+      };
+    }
+    const eventsReceived = (raw as { events_received?: number })
+      ?.events_received;
+    return { ok: true, eventsReceived, raw };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "CAPI network error",
+    };
+  }
+}
+
 /**
- * POST one event to Meta Graph `/{pixel_or_dataset_id}/events`.
+ * POST one business_messaging event to Meta Graph `/{pixel_or_dataset_id}/events`.
  */
 export async function sendCapiEvent(
   input: SendCapiEventInput,
@@ -197,6 +267,18 @@ export async function sendCapiEvent(
   const channelError = validateCapiChannelUser(input.channel, input.user);
   if (channelError) {
     return { ok: false, error: channelError };
+  }
+
+  if (
+    input.channel === "messenger" &&
+    !isValidMessengerPsid(input.user.messengerPsid)
+  ) {
+    return {
+      ok: false,
+      error: enrichCapiErrorForUi(
+        "Messenger CAPI events require a valid page-scoped user id (PSID) from a real conversation.",
+      ),
+    };
   }
 
   const eventTime = input.eventTime ?? Math.floor(Date.now() / 1000);
@@ -221,30 +303,59 @@ export async function sendCapiEvent(
     payload.test_event_code = testEventCode;
   }
 
-  const url = `https://graph.facebook.com/${META_API_VERSION}/${encodeURIComponent(input.pixelId)}/events?access_token=${encodeURIComponent(input.accessToken)}`;
+  return postCapiPayload(input.pixelId, input.accessToken, payload);
+}
 
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const raw = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      return {
-        ok: false,
-        error: formatMetaCapiError(raw, `Meta CAPI HTTP ${res.status}`),
-        raw,
-      };
-    }
-    const eventsReceived = (raw as { events_received?: number })?.events_received;
-    return { ok: true, eventsReceived, raw };
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "CAPI network error",
-    };
+export interface SendCapiConnectivityTestInput {
+  pixelId: string;
+  accessToken: string;
+  testEventCode?: string | null;
+  eventId: string;
+  contactId: string;
+  phone?: string | null;
+  email?: string | null;
+}
+
+/**
+ * Dataset connectivity check without business_messaging / PSID.
+ * Uses action_source=other + classic Lead so Save/Test can succeed
+ * when no real Messenger conversation exists yet.
+ */
+export async function sendCapiConnectivityTest(
+  input: SendCapiConnectivityTestInput,
+): Promise<CapiSendResult> {
+  const eventTime = Math.floor(Date.now() / 1000);
+  const testEventCode = sanitizeTestEventCode(input.testEventCode);
+
+  const userData: Record<string, unknown> = {
+    external_id: hashForCapi(input.contactId),
+  };
+  if (input.phone) {
+    const ph = normalizePhoneForCapi(input.phone);
+    if (ph) userData.ph = [hashForCapi(ph)];
   }
+  if (input.email?.includes("@")) {
+    userData.em = [hashForCapi(input.email)];
+  }
+
+  const payload: Record<string, unknown> = {
+    data: [
+      {
+        event_name: "Lead",
+        event_time: eventTime,
+        event_id: input.eventId,
+        action_source: "other",
+        user_data: userData,
+      },
+    ],
+    partner_agent: PARTNER_AGENT,
+  };
+
+  if (testEventCode) {
+    payload.test_event_code = testEventCode;
+  }
+
+  return postCapiPayload(input.pixelId, input.accessToken, payload);
 }
 
 interface LoadedCapiConfig {
@@ -415,12 +526,43 @@ export async function fireCapiForInbound(
       cfg,
     );
 
+    let messengerPsid = params.messengerPsid;
+    if (
+      params.channel === "messenger" &&
+      !isValidMessengerPsid(messengerPsid)
+    ) {
+      const { data: contact } = await adminDb()
+        .from("contacts")
+        .select("messenger_psid")
+        .eq("id", params.contactId)
+        .eq("account_id", params.accountId)
+        .maybeSingle();
+      messengerPsid = contact?.messenger_psid ?? null;
+    }
+
+    if (
+      params.channel === "messenger" &&
+      !isValidMessengerPsid(messengerPsid)
+    ) {
+      console.error(
+        "[capi] skip messenger event — missing valid PSID for contact",
+        params.contactId,
+      );
+      await markConfigResult(cfg.configId, {
+        ok: false,
+        error: enrichCapiErrorForUi(
+          "Messenger CAPI skipped: contact has no valid page_scoped_user_id (PSID).",
+        ),
+      }).catch(() => {});
+      return;
+    }
+
     const user: CapiUserIdentifiers = {
       contactId: params.contactId,
       phone: params.phone,
       email: params.email,
       ctwaClid: params.ctwaClid,
-      messengerPsid: params.messengerPsid,
+      messengerPsid,
       pageId,
       wabaId,
     };

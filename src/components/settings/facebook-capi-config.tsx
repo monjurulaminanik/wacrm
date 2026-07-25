@@ -153,10 +153,18 @@ export function FacebookCapiConfig() {
         return;
       }
       if (payload.ok) {
-        toast.success(t('testOk'));
+        if (payload.mode === 'connectivity') {
+          toast.success(t('testOkConnectivity'), {
+            description: payload.hint_bn || t('testPsidHint'),
+          });
+        } else {
+          toast.success(t('testOk'));
+        }
         await load();
       } else {
-        toast.error(payload.error || t('testFailed'));
+        toast.error(payload.error || t('testFailed'), {
+          description: payload.hint_bn || undefined,
+        });
         await load();
       }
     } catch {
@@ -300,6 +308,7 @@ export function FacebookCapiConfig() {
             </div>
           </div>
           <p className="text-xs text-muted-foreground">{t('idsHint')}</p>
+          <p className="text-xs text-muted-foreground">{t('testPsidHint')}</p>
 
           <div className="space-y-3 rounded-lg border border-border p-3">
             <p className="text-sm font-medium text-foreground">{t('eventsTitle')}</p>
