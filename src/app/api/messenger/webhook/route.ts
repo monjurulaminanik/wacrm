@@ -51,11 +51,17 @@ export async function GET(request: Request) {
     }
 
     // Plaintext env fallback — survives encrypt/decrypt mismatches and
-    // lets Meta verify even if messenger_config row is mid-save.
-    const envVerify =
+    // lets Meta verify BEFORE the first CRM save (no messenger_config row yet).
+    // Supports a single token or comma-separated list (e.g. RingGo + Dawat).
+    const envVerifyRaw =
       process.env.MESSENGER_VERIFY_TOKEN?.trim() ||
-      process.env.META_MESSENGER_VERIFY_TOKEN?.trim();
-    if (envVerify && envVerify === verifyToken) {
+      process.env.META_MESSENGER_VERIFY_TOKEN?.trim() ||
+      "";
+    const envTokens = envVerifyRaw
+      .split(",")
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (envTokens.includes(verifyToken)) {
       return new NextResponse(challenge, {
         status: 200,
         headers: { "Content-Type": "text/plain; charset=utf-8" },

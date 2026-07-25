@@ -78,7 +78,7 @@ export function MessengerConfig() {
       return;
     }
     if (pageId.includes('@') || pageId === '123456789012345') {
-      toast.error('Page ID clear করুন — খালি রাখুন (auto-detect হবে)');
+      toast.error('Page ID clear করুন — শুধু numeric Page ID দিন');
       return;
     }
     if (!verifyToken.trim()) {
@@ -207,15 +207,19 @@ export function MessengerConfig() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label>Page ID (optional — leave blank)</Label>
+            <Label>Page ID (recommended)</Label>
             <Input
               value={pageId}
               onChange={(e) => setPageId(e.target.value)}
-              placeholder="Leave empty — filled from token"
+              placeholder="e.g. 821488564371982"
               autoComplete="off"
               name="messenger-page-id"
               inputMode="numeric"
             />
+            <p className="text-xs text-muted-foreground">
+              Meta Page → About → Page ID. Paste digits only — avoids Meta{" "}
+              <code className="text-xs">pages_read_engagement</code> errors during Save.
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Page Access Token</Label>
@@ -290,12 +294,30 @@ export function MessengerConfig() {
               <Copy className="size-4" />
             </Button>
           </div>
+          {!connected ? (
+            <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground mb-3">
+              <p className="font-medium text-foreground mb-1">First connect checklist</p>
+              <p>
+                One <code className="text-xs">messages</code> webhook subscription delivers{' '}
+                <strong className="text-foreground">all</strong> inbound chats — organic and
+                Click-to-Messenger / ads. No separate “ads only” switch.
+              </p>
+            </div>
+          ) : null}
           <ol className="list-decimal pl-5 text-sm text-muted-foreground space-y-1">
-            <li>Create / open your Meta App with Messenger product</li>
-            <li>Generate a Page Access Token for your Facebook Page (starts with EAA)</li>
-            <li>Add webhook callback URL above + your Verify Token; subscribe field: messages</li>
+            <li>
+              Meta App → Messenger → generate a <strong className="text-foreground">Page Access Token</strong> for
+              the Facebook Page (e.g. RingGo Property) — token starts with EAA
+            </li>
+            <li>
+              Webhooks → Callback URL above + same Verify Token; Page field:{' '}
+              <code className="text-xs">messages</code> (covers ads + organic)
+            </li>
             <li>Save Configuration (or Test Connection) — CRM also calls Page subscribed_apps</li>
-            <li>Send a test message to the Page — it should appear in Inbox → Messenger</li>
+            <li>
+              Test: organic Messenger reply to the Page, then optionally one ad Click-to-Message — both should
+              appear in Inbox → Messenger
+            </li>
           </ol>
         </CardContent>
       </Card>

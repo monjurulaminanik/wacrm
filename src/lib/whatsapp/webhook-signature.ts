@@ -12,20 +12,24 @@ import crypto from 'node:crypto'
  *   https://developers.facebook.com/docs/graph-api/webhooks/getting-started#verify-payloads
  *
  * Contract:
- *   `META_APP_SECRET` is **required**. If it's missing we fail closed —
- *   every request is rejected until the operator configures the
- *   secret. A previous version fell open with a warning log, which is
- *   unsafe for a public template: anyone who forgets the env var would
- *   be running a fully spoofable webhook.
+ *   At least one of `META_APP_SECRET` or `MESSENGER_META_APP_SECRET` is
+ *   required. If both are missing we fail closed. Messenger may use a
+ *   different Meta app than WhatsApp on the same CRM — try both secrets.
  */
 export function verifyMetaWebhookSignature(
   rawBody: string,
   signatureHeader: string | null,
 ): boolean {
-  const secret = process.env.META_APP_SECRET
-  if (!secret) {
+  const secrets = [
+    process.env.META_APP_SECRET,
+    process.env.MESSENGER_META_APP_SECRET,
+  ]
+    .map((s) => s?.trim())
+    .filter((s): s is string => Boolean(s))
+
+  if (secrets.length === 0) {
     console.error(
-      '[webhook] META_APP_SECRET is not set — rejecting request. ' +
+      '[webhook] META_APP_SECRET / MESSENGER_META_APP_SECRET is not set — rejecting request. ' +
         'Configure the env var (Meta → App Settings → Basic → App Secret) ' +
         'to enable signature verification.',
     )
@@ -35,13 +39,15 @@ export function verifyMetaWebhookSignature(
   if (!signatureHeader) return false
   if (!signatureHeader.startsWith('sha256=')) return false
 
-  const expected =
-    'sha256=' +
-    crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
-
   const a = Buffer.from(signatureHeader)
-  const b = Buffer.from(expected)
-  // Bail if lengths differ — timingSafeEqual throws otherwise.
-  if (a.length !== b.length) return false
-  return crypto.timingSafeEqual(a, b)
+  for (const secret of secrets) {
+    const expected =
+      'sha256=' +
+      crypto.createHmac('sha256', secret).update(rawBody).digest('hex')
+    const b = Buffer.from(expected)
+    if (a.length === b.length && crypto.timingSafeEqual(a, b)) {
+      return true
+    }
+  }
+  return false
 }

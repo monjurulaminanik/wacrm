@@ -51,11 +51,18 @@ describe("verifyMetaWebhookSignature", () => {
 
   describe("fail-closed when secret is missing", () => {
     const originalSecret = process.env.META_APP_SECRET;
+    const originalMessengerSecret = process.env.MESSENGER_META_APP_SECRET;
     beforeEach(() => {
       delete process.env.META_APP_SECRET;
+      delete process.env.MESSENGER_META_APP_SECRET;
     });
     afterEach(() => {
       process.env.META_APP_SECRET = originalSecret;
+      if (originalMessengerSecret === undefined) {
+        delete process.env.MESSENGER_META_APP_SECRET;
+      } else {
+        process.env.MESSENGER_META_APP_SECRET = originalMessengerSecret;
+      }
     });
 
     it("rejects even a correctly-formed signature when no secret is configured", () => {
@@ -64,6 +71,33 @@ describe("verifyMetaWebhookSignature", () => {
       // the rejection is solely due to missing config.
       const header = signedHeader(body, originalSecret!);
       expect(verifyMetaWebhookSignature(body, header)).toBe(false);
+    });
+  });
+
+  describe("MESSENGER_META_APP_SECRET alternate", () => {
+    const originalSecret = process.env.META_APP_SECRET;
+    const originalMessengerSecret = process.env.MESSENGER_META_APP_SECRET;
+    beforeEach(() => {
+      delete process.env.META_APP_SECRET;
+      process.env.MESSENGER_META_APP_SECRET = "messenger-only-secret";
+    });
+    afterEach(() => {
+      process.env.META_APP_SECRET = originalSecret;
+      if (originalMessengerSecret === undefined) {
+        delete process.env.MESSENGER_META_APP_SECRET;
+      } else {
+        process.env.MESSENGER_META_APP_SECRET = originalMessengerSecret;
+      }
+    });
+
+    it("accepts a request signed with the Messenger app secret", () => {
+      const body = JSON.stringify({ object: "page" });
+      expect(
+        verifyMetaWebhookSignature(
+          body,
+          signedHeader(body, "messenger-only-secret"),
+        ),
+      ).toBe(true);
     });
   });
 });

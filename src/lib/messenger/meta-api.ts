@@ -15,38 +15,49 @@ function isUsablePageId(value: string | undefined | null): value is string {
   return true;
 }
 
-function appAccessToken(): string | null {
-  const appId =
-    process.env.META_APP_ID?.trim() ||
-    process.env.NEXT_PUBLIC_META_APP_ID?.trim();
-  const secret = process.env.META_APP_SECRET?.trim();
-  if (!appId || !secret) return null;
-  return `${appId}|${secret}`;
+/**
+ * App access tokens for debug_token.
+ * Prefer Messenger-specific credentials when WhatsApp uses a different Meta app
+ * on the same CRM (common: Dawat WA + RingGo Messenger).
+ */
+function messengerAppAccessTokens(): string[] {
+  const pairs: Array<[string | undefined, string | undefined]> = [
+    [
+      process.env.MESSENGER_META_APP_ID?.trim(),
+      process.env.MESSENGER_META_APP_SECRET?.trim(),
+    ],
+    [
+      process.env.META_APP_ID?.trim() ||
+        process.env.NEXT_PUBLIC_META_APP_ID?.trim(),
+      process.env.META_APP_SECRET?.trim(),
+    ],
+  ];
+  const out: string[] = [];
+  for (const [id, secret] of pairs) {
+    if (id && secret) out.push(`${id}|${secret}`);
+  }
+  return out;
 }
 
-/**
- * Validate a Page Access Token via debug_token (no pages_read_engagement).
- * Returns the Page id when the token is a valid PAGE token for our app.
- */
-async function resolvePageIdViaDebugToken(
-  pageAccessToken: string,
-): Promise<{ id: string; name: string } | null> {
-  const appToken = appAccessToken();
-  if (!appToken) return null;
+type DebugTokenData = {
+  is_valid?: boolean;
+  type?: string;
+  app_id?: string;
+  profile_id?: string;
+  user_id?: string;
+  error?: { message?: string };
+};
 
+async function callDebugToken(
+  pageAccessToken: string,
+  accessToken: string,
+): Promise<{ id: string; name: string } | null> {
   const url =
     `${GRAPH}/debug_token?input_token=${encodeURIComponent(pageAccessToken)}` +
-    `&access_token=${encodeURIComponent(appToken)}`;
+    `&access_token=${encodeURIComponent(accessToken)}`;
   const res = await fetch(url);
   const json = (await res.json()) as {
-    data?: {
-      is_valid?: boolean;
-      type?: string;
-      app_id?: string;
-      profile_id?: string;
-      user_id?: string;
-      error?: { message?: string };
-    };
+    data?: DebugTokenData;
     error?: { message?: string };
   };
 
@@ -58,7 +69,7 @@ async function resolvePageIdViaDebugToken(
   const pageId = data.profile_id || data.user_id;
   if (!pageId) return null;
 
-  // Optional name — ignore permission errors.
+  // Optional name — ignore permission errors (#100 / pages_read_engagement).
   let name = "Facebook Page";
   try {
     const nameRes = await fetch(
@@ -71,6 +82,22 @@ async function resolvePageIdViaDebugToken(
   }
 
   return { id: pageId, name };
+}
+
+/**
+ * Validate a Page Access Token via debug_token (no pages_read_engagement).
+ * Tries Messenger app credentials, shared META_APP_*, then self-debug.
+ */
+async function resolvePageIdViaDebugToken(
+  pageAccessToken: string,
+): Promise<{ id: string; name: string } | null> {
+  for (const appToken of messengerAppAccessTokens()) {
+    const found = await callDebugToken(pageAccessToken, appToken);
+    if (found) return found;
+  }
+
+  // Self-debug: Page tokens can often inspect themselves without App Secret.
+  return callDebugToken(pageAccessToken, pageAccessToken);
 }
 
 /**
@@ -88,14 +115,11 @@ export async function fetchMessengerPageProfile(
 }> {
   const errors: string[] = [];
 
-  // 1) Preferred: App debug_token — works with pages_messaging alone.
+  // 1) Preferred: App / self debug_token — works with pages_messaging alone.
   try {
     const viaDebug = await resolvePageIdViaDebugToken(accessToken);
     if (viaDebug) {
-      if (
-        isUsablePageId(pageIdHint) &&
-        pageIdHint !== viaDebug.id
-      ) {
+      if (isUsablePageId(pageIdHint) && pageIdHint !== viaDebug.id) {
         throw new Error(
           `Page ID mismatch: token belongs to ${viaDebug.id}, not ${pageIdHint}`,
         );
@@ -118,7 +142,7 @@ export async function fetchMessengerPageProfile(
     const json = (await res.json()) as {
       id?: string;
       name?: string;
-      error?: { message?: string };
+      error?: { message?: string; code?: number };
     };
     if (!res.ok || !json.id) {
       if (json.error?.message) errors.push(json.error.message);
@@ -128,23 +152,34 @@ export async function fetchMessengerPageProfile(
   }
 
   // 2) Explicit Page ID from the form (real digits only).
+  // Never require pages_read_engagement — if metadata is blocked, still save.
   if (isUsablePageId(pageIdHint)) {
     const byId = await tryUrl(
       `${GRAPH}/${pageIdHint}?fields=id,name&${tokenQ}`,
     );
     if (byId) return byId;
-    // Token is accepted for messaging even when name/metadata is blocked.
-    // Save with the known Page ID so webhook + send still work.
     return { id: pageIdHint, name: "Facebook Page" };
   }
 
-  // 3) Last resort `/me` (may need pages_read_engagement on some apps).
+  // 3) Last resort `/me?fields=id` only (not name) — still may need engagement
+  // on some apps. Prefer asking for Page ID over surfacing #100.
   const meId = await tryUrl(`${GRAPH}/me?fields=id&${tokenQ}`);
   if (meId) return meId;
 
+  const engagementBlocked = errors.some(
+    (m) =>
+      /pages_read_engagement/i.test(m) ||
+      /Page Public (Content|Metadata) Access/i.test(m),
+  );
+  if (engagementBlocked) {
+    throw new Error(
+      "Meta blocked Page profile lookup (needs pages_read_engagement). Paste the numeric Page ID (e.g. RingGo Property → 821488564371982) and Save again — CRM does not need that permission.",
+    );
+  }
+
   throw new Error(
     errors[0] ||
-      "Could not validate Page token. Paste the token from Meta → Generate, leave Page ID blank, and ensure META_APP_ID is set on the server.",
+      "Could not validate Page token. Paste the token from Meta → Generate, enter the numeric Page ID, and ensure META_APP_ID / MESSENGER_META_APP_ID is set on the server.",
   );
 }
 
