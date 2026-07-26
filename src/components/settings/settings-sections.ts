@@ -1,5 +1,6 @@
 import {
   Coins,
+  FileCode2,
   FileText,
   KeyRound,
   LayoutGrid,
@@ -8,7 +9,6 @@ import {
   PlugZap,
   MessageCircle,
   Shield,
-  Tag,
   Tags,
   User,
   UsersRound,
@@ -69,7 +69,7 @@ export const SECTION_META: Record<SettingsSection, SectionMeta> = {
   gtm: {
     id: 'gtm',
     label: 'Google Tag Manager',
-    icon: Tag,
+    icon: FileCode2,
     group: 'workspace',
   },
   templates: { id: 'templates', label: 'Templates', icon: FileText, group: 'workspace' },
