@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   CAPI_MESSENGER_PSID_HINT_BN,
+  CAPI_PAGE_DATASET_HINT_BN,
   enrichCapiErrorForUi,
+  isCapiMessagingAssociationError,
   isValidMessengerPsid,
+  messagingEventToStandardLeadName,
   sanitizeTestEventCode,
   validateCapiChannelUser,
   formatMetaCapiError,
@@ -51,12 +54,54 @@ describe("isValidMessengerPsid", () => {
   });
 });
 
+describe("isCapiMessagingAssociationError", () => {
+  it("detects page/dataset mismatch", () => {
+    expect(
+      isCapiMessagingAssociationError(
+        "Messaging event mismatching page and dataset: For CTM and CTWA events, the dataset id used to send events to CAPI and the parameter 'page_id' should be matched, which means that the dataset must have permission to log events for the page.",
+      ),
+    ).toBe(true);
+  });
+
+  it("detects invalid PSID", () => {
+    expect(
+      isCapiMessagingAssociationError(
+        "Invalid Page-scoped user ID: The page_scoped_user_id parameter is invalid.",
+      ),
+    ).toBe(true);
+  });
+
+  it("ignores unrelated errors", () => {
+    expect(isCapiMessagingAssociationError("Invalid access token")).toBe(
+      false,
+    );
+  });
+});
+
+describe("messagingEventToStandardLeadName", () => {
+  it("maps messaging events to classic Pixel names", () => {
+    expect(messagingEventToStandardLeadName("LeadSubmitted")).toBe("Lead");
+    expect(messagingEventToStandardLeadName("QualifiedLead")).toBe("Lead");
+    expect(messagingEventToStandardLeadName("Purchase")).toBe("Purchase");
+    expect(messagingEventToStandardLeadName("ViewContent")).toBe(
+      "ViewContent",
+    );
+  });
+});
+
 describe("enrichCapiErrorForUi", () => {
   it("appends Bangla PSID hint for Meta PSID errors", () => {
     const msg = enrichCapiErrorForUi(
       "Invalid Page-scoped user ID: The page_scoped_user_id parameter is invalid.",
     );
     expect(msg).toContain(CAPI_MESSENGER_PSID_HINT_BN);
+  });
+
+  it("appends Bangla page/dataset hint", () => {
+    const msg = enrichCapiErrorForUi(
+      "Messaging event mismatching page and dataset: dataset must have permission to log events for the page.",
+    );
+    expect(msg).toContain(CAPI_PAGE_DATASET_HINT_BN);
   });
 });
 

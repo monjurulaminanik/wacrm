@@ -3,12 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { encrypt, decrypt } from "@/lib/whatsapp/encryption";
 import {
   CAPI_MESSENGER_PSID_HINT_BN,
+  CAPI_PAGE_DATASET_HINT_BN,
   enrichCapiErrorForUi,
   formatMetaCapiError,
   isValidMessengerPsid,
   sanitizeTestEventCode,
   sendCapiConnectivityTest,
-  sendCapiEvent,
+  sendCapiEventWithLeadFallback,
   type MessagingChannel,
 } from "@/lib/facebook/capi";
 
@@ -361,7 +362,8 @@ export async function PUT() {
     }
 
     let result;
-    let mode: "messenger" | "whatsapp" | "connectivity" = channel;
+    let mode: "messenger" | "whatsapp" | "connectivity" | "lead_fallback" =
+      channel;
 
     if (channel === "messenger" && !realPsid) {
       // No real conversation yet — connectivity check without PSID so Save/Test works.
@@ -375,7 +377,7 @@ export async function PUT() {
         phone: "8801700000000",
       });
     } else {
-      result = await sendCapiEvent({
+      result = await sendCapiEventWithLeadFallback({
         pixelId: config.pixel_id,
         accessToken: token,
         testEventCode: testCode,
@@ -390,6 +392,7 @@ export async function PUT() {
           messengerPsid: channel === "messenger" ? realPsid : null,
         },
       });
+      if (result.usedLeadFallback) mode = "lead_fallback";
     }
 
     const errorText = result.ok
@@ -415,7 +418,9 @@ export async function PUT() {
           channel,
           mode,
           hint_bn:
-            channel === "messenger" ? CAPI_MESSENGER_PSID_HINT_BN : undefined,
+            channel === "messenger"
+              ? CAPI_PAGE_DATASET_HINT_BN
+              : undefined,
           raw: result.raw,
         },
         { status: 200 },
@@ -429,8 +434,13 @@ export async function PUT() {
       channel,
       mode,
       used_real_psid: Boolean(realPsid),
+      used_lead_fallback: Boolean(result.usedLeadFallback),
       hint_bn:
-        mode === "connectivity" ? CAPI_MESSENGER_PSID_HINT_BN : undefined,
+        mode === "connectivity" || mode === "lead_fallback"
+          ? mode === "lead_fallback"
+            ? CAPI_PAGE_DATASET_HINT_BN
+            : CAPI_MESSENGER_PSID_HINT_BN
+          : undefined,
     });
   } catch (err) {
     console.error("[facebook/capi/config PUT]", err);

@@ -4,6 +4,10 @@
  * Primary path: action_source = business_messaging with messaging_channel
  * whatsapp | messenger (Meta's recommended path for CTWA / Click-to-Messenger).
  *
+ * Fallback: when Page↔Dataset messaging link is blocked (Review needed /
+ * mismatch / invalid PSID), send classic Pixel Lead with action_source=other
+ * using hashed phone + external_id so ads still get a conversion signal.
+ *
  * Fail-open: callers should catch / use fireCapiForInbound which never throws.
  */
 
@@ -54,6 +58,10 @@ export interface CapiSendResult {
   eventsReceived?: number;
   error?: string;
   raw?: unknown;
+  /** Set when business_messaging failed and classic Lead (other) succeeded. */
+  usedLeadFallback?: boolean;
+  /** Which payload was accepted by Meta. */
+  mode?: "business_messaging" | "lead_fallback";
 }
 
 /** Meta Graph error blob shape (partial). */
@@ -129,8 +137,33 @@ export function isValidMessengerPsid(
 export const CAPI_MESSENGER_PSID_HINT_BN =
   "টেস্টের জন্য আগে একটা Messenger মেসেজ থাকলে ভালো";
 
+/** Bangla hint when Page↔Dataset messaging association is blocked. */
+export const CAPI_PAGE_DATASET_HINT_BN =
+  "পেজে Review needed থাকলে messaging কানেক্ট হয় না — আগে BM-এ রিভিউ শেষ করুন; আপাতত CRM Lead (other) ব্যাকআপ পাঠায়";
+
 /**
- * Append a clear Bangla hint when Meta rejects an invalid PSID.
+ * True when Meta rejects business_messaging because Page/Dataset are not
+ * linked for messaging, or PSID is invalid — safe to retry as classic Lead.
+ */
+export function isCapiMessagingAssociationError(
+  error: string | null | undefined,
+): boolean {
+  if (!error) return false;
+  return (
+    /mismatching page and dataset/i.test(error) ||
+    /dataset must have permission to log events for the page/i.test(error) ||
+    /page_id.*matched|matched.*page_id/i.test(error) ||
+    /page_scoped_user_id|page-scoped user id|Invalid Page-scoped/i.test(
+      error,
+    ) ||
+    /not (?:linked|associated|connected).*(?:page|dataset)|(?:page|dataset).*(?:not (?:linked|associated|connected))/i.test(
+      error,
+    )
+  );
+}
+
+/**
+ * Append a clear Bangla hint when Meta rejects an invalid PSID or page link.
  */
 export function enrichCapiErrorForUi(error: string): string {
   if (
@@ -139,7 +172,27 @@ export function enrichCapiErrorForUi(error: string): string {
     if (error.includes(CAPI_MESSENGER_PSID_HINT_BN)) return error;
     return `${error} — ${CAPI_MESSENGER_PSID_HINT_BN}`;
   }
+  if (isCapiMessagingAssociationError(error)) {
+    if (error.includes(CAPI_PAGE_DATASET_HINT_BN)) return error;
+    return `${error} — ${CAPI_PAGE_DATASET_HINT_BN}`;
+  }
   return error;
+}
+
+/** Map messaging event names to classic Pixel events for the Lead fallback. */
+export function messagingEventToStandardLeadName(
+  eventName: CapiMessagingEventName,
+): string {
+  switch (eventName) {
+    case "Purchase":
+      return "Purchase";
+    case "ViewContent":
+      return "ViewContent";
+    case "LeadSubmitted":
+    case "QualifiedLead":
+    default:
+      return "Lead";
+  }
 }
 
 /** Channel-specific required user_data before calling Meta. */
@@ -260,13 +313,14 @@ async function postCapiPayload(
 
 /**
  * POST one business_messaging event to Meta Graph `/{pixel_or_dataset_id}/events`.
+ * Does not fall back — use sendCapiEventWithLeadFallback for production sends.
  */
 export async function sendCapiEvent(
   input: SendCapiEventInput,
 ): Promise<CapiSendResult> {
   const channelError = validateCapiChannelUser(input.channel, input.user);
   if (channelError) {
-    return { ok: false, error: channelError };
+    return { ok: false, error: channelError, mode: "business_messaging" };
   }
 
   if (
@@ -278,6 +332,7 @@ export async function sendCapiEvent(
       error: enrichCapiErrorForUi(
         "Messenger CAPI events require a valid page-scoped user id (PSID) from a real conversation.",
       ),
+      mode: "business_messaging",
     };
   }
 
@@ -303,7 +358,152 @@ export async function sendCapiEvent(
     payload.test_event_code = testEventCode;
   }
 
-  return postCapiPayload(input.pixelId, input.accessToken, payload);
+  const result = await postCapiPayload(
+    input.pixelId,
+    input.accessToken,
+    payload,
+  );
+  return { ...result, mode: "business_messaging" };
+}
+
+export interface SendCapiLeadFallbackInput {
+  pixelId: string;
+  accessToken: string;
+  testEventCode?: string | null;
+  /** Original messaging event — mapped to classic Pixel name. */
+  eventName: CapiMessagingEventName;
+  eventId: string;
+  eventTime?: number;
+  contactId: string;
+  phone?: string | null;
+  email?: string | null;
+  customData?: Record<string, unknown>;
+  /** Meta action_source for non-messaging Lead. Prefer other while Page link is blocked. */
+  actionSource?: "other" | "website";
+}
+
+/**
+ * Classic Pixel Lead (or Purchase/ViewContent) without page_scoped_user_id.
+ * Works without Page↔Dataset messaging association.
+ */
+export async function sendCapiLeadFallback(
+  input: SendCapiLeadFallbackInput,
+): Promise<CapiSendResult> {
+  const eventTime = input.eventTime ?? Math.floor(Date.now() / 1000);
+  const testEventCode = sanitizeTestEventCode(input.testEventCode);
+  const standardName = messagingEventToStandardLeadName(input.eventName);
+
+  const userData: Record<string, unknown> = {
+    external_id: hashForCapi(input.contactId),
+  };
+  if (input.phone) {
+    const ph = normalizePhoneForCapi(input.phone);
+    if (ph) userData.ph = [hashForCapi(ph)];
+  }
+  if (input.email?.includes("@")) {
+    userData.em = [hashForCapi(input.email)];
+  }
+
+  const payload: Record<string, unknown> = {
+    data: [
+      {
+        event_name: standardName,
+        event_time: eventTime,
+        // Distinct id so a later successful business_messaging send does not collide
+        event_id: `${input.eventId}_fb`,
+        action_source: input.actionSource || "other",
+        user_data: userData,
+        ...(input.customData ? { custom_data: input.customData } : {}),
+      },
+    ],
+    partner_agent: PARTNER_AGENT,
+  };
+
+  if (testEventCode) {
+    payload.test_event_code = testEventCode;
+  }
+
+  const result = await postCapiPayload(
+    input.pixelId,
+    input.accessToken,
+    payload,
+  );
+  return {
+    ...result,
+    mode: "lead_fallback",
+    usedLeadFallback: result.ok,
+  };
+}
+
+/**
+ * Try business_messaging first; on Page/Dataset mismatch or invalid PSID,
+ * fall back to classic Lead (action_source=other) with hashed identifiers.
+ * Always falls back when Messenger PSID is missing/invalid (pre-check).
+ */
+export async function sendCapiEventWithLeadFallback(
+  input: SendCapiEventInput,
+): Promise<CapiSendResult> {
+  const canTryMessaging =
+    input.channel !== "messenger" ||
+    (Boolean(input.user.pageId?.trim()) &&
+      isValidMessengerPsid(input.user.messengerPsid));
+
+  let messagingError: string | undefined;
+
+  if (canTryMessaging) {
+    const primary = await sendCapiEvent(input);
+    if (primary.ok) return primary;
+
+    messagingError = primary.error;
+    if (!isCapiMessagingAssociationError(primary.error)) {
+      return primary;
+    }
+
+    console.warn(
+      "[capi] business_messaging rejected — trying Lead fallback",
+      primary.error,
+    );
+  } else {
+    messagingError = enrichCapiErrorForUi(
+      "Messenger CAPI skipped: contact has no valid page_scoped_user_id (PSID).",
+    );
+    console.warn(
+      "[capi] skipping business_messaging (no valid PSID) — Lead fallback",
+    );
+  }
+
+  const fallback = await sendCapiLeadFallback({
+    pixelId: input.pixelId,
+    accessToken: input.accessToken,
+    testEventCode: input.testEventCode,
+    eventName: input.eventName,
+    eventId: input.eventId,
+    eventTime: input.eventTime,
+    contactId: input.user.contactId,
+    phone: input.user.phone,
+    email: input.user.email,
+    customData: input.customData,
+    actionSource: "other",
+  });
+
+  if (fallback.ok) {
+    return {
+      ...fallback,
+      usedLeadFallback: true,
+    };
+  }
+
+  return {
+    ok: false,
+    error: enrichCapiErrorForUi(
+      messagingError ||
+        fallback.error ||
+        "Meta rejected both business_messaging and Lead fallback",
+    ),
+    usedLeadFallback: true,
+    mode: "lead_fallback",
+    raw: fallback.raw,
+  };
 }
 
 export interface SendCapiConnectivityTestInput {
@@ -527,40 +727,31 @@ export async function fireCapiForInbound(
     );
 
     let messengerPsid = params.messengerPsid;
+    let phone = params.phone;
+    let email = params.email;
     if (
       params.channel === "messenger" &&
       !isValidMessengerPsid(messengerPsid)
     ) {
       const { data: contact } = await adminDb()
         .from("contacts")
-        .select("messenger_psid")
+        .select("messenger_psid, phone, email")
         .eq("id", params.contactId)
         .eq("account_id", params.accountId)
         .maybeSingle();
       messengerPsid = contact?.messenger_psid ?? null;
+      if (!phone && contact?.phone) phone = contact.phone;
+      if (!email && contact?.email) email = contact.email;
     }
 
-    if (
-      params.channel === "messenger" &&
-      !isValidMessengerPsid(messengerPsid)
-    ) {
-      console.error(
-        "[capi] skip messenger event — missing valid PSID for contact",
-        params.contactId,
-      );
-      await markConfigResult(cfg.configId, {
-        ok: false,
-        error: enrichCapiErrorForUi(
-          "Messenger CAPI skipped: contact has no valid page_scoped_user_id (PSID).",
-        ),
-      }).catch(() => {});
-      return;
-    }
+    // Missing PSID no longer aborts — sendCapiEventWithLeadFallback uses
+    // classic Lead (action_source=other) so ads still get a signal while
+    // Page↔Dataset messaging link is blocked (e.g. Review needed).
 
     const user: CapiUserIdentifiers = {
       contactId: params.contactId,
-      phone: params.phone,
-      email: params.email,
+      phone,
+      email,
       ctwaClid: params.ctwaClid,
       messengerPsid,
       pageId,
@@ -572,7 +763,7 @@ export async function fireCapiForInbound(
 
     // New contact → QualifiedLead (Lead tag applied in CRM)
     if (params.wasCreated && cfg.sendQualifiedLeadOnNewContact) {
-      const r = await sendCapiEvent({
+      const r = await sendCapiEventWithLeadFallback({
         pixelId: cfg.pixelId,
         accessToken: cfg.accessToken,
         testEventCode: cfg.testEventCode,
@@ -584,11 +775,14 @@ export async function fireCapiForInbound(
       });
       results.push(r);
       if (!r.ok) console.error("[capi] QualifiedLead failed", r.error);
+      else if (r.usedLeadFallback) {
+        console.info("[capi] QualifiedLead via Lead fallback");
+      }
     }
 
     // First inbound message → LeadSubmitted (Meta messaging standard)
     if (params.isFirstInbound && cfg.sendLeadOnFirstMessage) {
-      const r = await sendCapiEvent({
+      const r = await sendCapiEventWithLeadFallback({
         pixelId: cfg.pixelId,
         accessToken: cfg.accessToken,
         testEventCode: cfg.testEventCode,
@@ -601,6 +795,9 @@ export async function fireCapiForInbound(
       });
       results.push(r);
       if (!r.ok) console.error("[capi] LeadSubmitted failed", r.error);
+      else if (r.usedLeadFallback) {
+        console.info("[capi] LeadSubmitted via Lead fallback");
+      }
     }
 
     // Subsequent messages: still useful as ViewContent for engagement signal

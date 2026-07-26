@@ -157,6 +157,10 @@ export function FacebookCapiConfig() {
           toast.success(t('testOkConnectivity'), {
             description: payload.hint_bn || t('testPsidHint'),
           });
+        } else if (payload.mode === 'lead_fallback') {
+          toast.success(t('testOkLeadFallback'), {
+            description: payload.hint_bn || t('reviewNeededHint'),
+          });
         } else {
           toast.success(t('testOk'));
         }
@@ -364,8 +368,12 @@ export function FacebookCapiConfig() {
             <li>{t('howto3')}</li>
             <li>{t('howto4')}</li>
             <li>{t('howto5')}</li>
+            <li>{t('howto6')}</li>
           </ol>
           <p className="mt-4 text-sm text-muted-foreground">{t('audienceNote')}</p>
+          <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
+            {t('reviewNeededHint')}
+          </p>
         </CardContent>
       </Card>
     </div>
