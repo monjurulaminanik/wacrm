@@ -53,6 +53,8 @@ export function SettingsOverview({
   const [whatsappLoading, setWhatsappLoading] = useState(true);
   const [messenger, setMessenger] = useState<WhatsAppStatus | null>(null);
   const [messengerLoading, setMessengerLoading] = useState(true);
+  const [gtm, setGtm] = useState<{ connected: boolean } | null>(null);
+  const [gtmLoading, setGtmLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !accountId) return;
@@ -157,6 +159,21 @@ export function SettingsOverview({
       setMessengerLoading(false);
     })();
 
+    // Google Tag Manager — cheap config read.
+    (async () => {
+      setGtmLoading(true);
+      try {
+        const res = await fetch('/api/gtm/config', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        setGtm({ connected: Boolean(data.connected) });
+      } catch {
+        if (!cancelled) setGtm({ connected: false });
+      } finally {
+        if (!cancelled) setGtmLoading(false);
+      }
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -207,6 +224,17 @@ export function SettingsOverview({
         <>
           <StatusDot tone="muted" /> {t('needsReconnecting')}
         </>
+      ),
+    },
+    {
+      section: 'gtm',
+      loading: gtmLoading,
+      subtitle: gtm?.connected ? (
+        <>
+          <StatusDot tone="ok" /> {t('connected')}
+        </>
+      ) : (
+        t('notSetup')
       ),
     },
     {

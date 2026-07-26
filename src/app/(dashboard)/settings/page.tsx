@@ -14,6 +14,7 @@ import { AppearancePanel } from '@/components/settings/appearance-panel';
 import { WhatsAppConfig } from '@/components/settings/whatsapp-config';
 import { MessengerConfig } from '@/components/settings/messenger-config';
 import { FacebookCapiConfig } from '@/components/settings/facebook-capi-config';
+import { GtmConfig } from '@/components/settings/gtm-config';
 import { TemplateManager } from '@/components/settings/template-manager';
 import { QuickRepliesManager } from '@/components/settings/quick-replies-manager';
 import { FieldsAndTagsPanel } from '@/components/settings/fields-and-tags-panel';
@@ -79,6 +80,7 @@ function SettingsPageInner() {
     whatsapp: <WhatsAppConfig />,
     messenger: <MessengerConfig />,
     'facebook-ads': <FacebookCapiConfig />,
+    gtm: <GtmConfig />,
     templates: <TemplateManager />,
     'quick-replies': <QuickRepliesManager />,
     fields: <FieldsAndTagsPanel />,

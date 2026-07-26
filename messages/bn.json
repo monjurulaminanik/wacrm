@@ -133,6 +133,7 @@
       "whatsapp": "WhatsApp",
       "messenger": "মেসেঞ্জার",
       "facebook-ads": "Facebook Ads",
+      "gtm": "Google Tag Manager",
       "templates": "টেমপ্লেট",
       "quick-replies": "কুইক রিপ্লাই",
       "fields": "ফিল্ড ও ট্যাগ",
@@ -203,6 +204,34 @@
       "howto5": "Click-to-WhatsApp অ্যাডের জন্য ctwa_clid ওয়েবহুকে এলে CRM সেভ করে।",
       "howto6": "CTM messaging-এর জন্য: Events Manager → Dataset → Settings → Linked data → Facebook Page যোগ করুন। App-এ page_events না থাকলে Graph দিয়ে লিংক হয় না। লিংক না হওয়া পর্যন্ত CRM Lead (other) পাঠায়।",
       "audienceNote": "যারা মেসেজ করেছে তাদের এনগেজমেন্ট সেভ হয় (পরে Custom Audience)। CAPI LeadSubmitted/QualifiedLead ইভেন্টই Meta ডেলিভারি উন্নত করে — MVP-তে আলাদা অডিয়েন্স সিঙ্ক লাগে না।"
+    },
+    "gtm": {
+      "title": "Google Tag Manager",
+      "description": "GTM কন্টেইনার কানেক্ট করুন যাতে মার্কেটিং ও কনভার্শন ট্যাগ CRM-এ চলে। Container ID পাবলিক — সেভ করা নিরাপদ।",
+      "loading": "লোড হচ্ছে…",
+      "loadFailed": "GTM সেটিংস লোড করা যায়নি",
+      "statusConnected": "Connected",
+      "statusDisconnected": "কানেক্ট নেই",
+      "statusConnectedDesc": "কন্টেইনার {id} সেভ আছে এবং GTM স্ক্রিপ্ট চালু।",
+      "statusDisconnectedDesc": "সঠিক Container ID সেভ করলে Google Tag Manager কানেক্ট হবে।",
+      "credentialsTitle": "GTM কন্টেইনার",
+      "credentialsDesc": "Google Tag Manager থেকে Container ID পেস্ট করুন (Admin → Container Settings), অথবা এই ডিপ্লয়ের জন্য Auto-fill ব্যবহার করুন।",
+      "containerLabel": "GTM Container ID",
+      "containerPlaceholder": "GTM-XXXXXXX",
+      "containerHint": "ফরম্যাট: GTM- এর পর অক্ষর ও সংখ্যা। এই সাইটের উদাহরণ: GTM-5M8CLVW9।",
+      "autoFill": "Auto-fill",
+      "autoFilled": "ডিফল্ট থেকে Container ID ভরা হয়েছে",
+      "connect": "Connect",
+      "connecting": "কানেক্ট হচ্ছে…",
+      "save": "সেভ ও কানেক্ট",
+      "disconnect": "Disconnect",
+      "invalidId": "অবৈধ Container ID। GTM-XXXXXXX ফরম্যাট ব্যবহার করুন।",
+      "connectedToast": "Google Tag Manager কানেক্ট হয়েছে",
+      "autoConnectedToast": "Google Tag Manager অটো-কানেক্ট হয়েছে",
+      "saveFailed": "GTM সেটিংস সেভ করা যায়নি",
+      "disconnectConfirm": "এই অ্যাকাউন্ট থেকে Google Tag Manager ডিসকানেক্ট করবেন?",
+      "disconnected": "GTM ডিসকানেক্ট হয়েছে",
+      "resetFailed": "GTM ডিসকানেক্ট করা যায়নি"
     }
   }
 }

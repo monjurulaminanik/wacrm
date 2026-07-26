@@ -14,6 +14,8 @@ import {
   STORAGE_KEY,
   THEME_IDS,
 } from "@/lib/themes";
+import { GtmScript } from "@/components/analytics/gtm-script";
+import { resolveEnvGtmContainerId } from "@/lib/gtm";
 
 const manrope = Manrope({
   variable: "--font-sans",
@@ -90,6 +92,7 @@ export default async function RootLayout({
 }>) {
   const locale = await getLocale();
   const messages = await getMessages();
+  const envGtmId = resolveEnvGtmContainerId();
 
   return (
     <html
@@ -114,6 +117,7 @@ export default async function RootLayout({
             : undefined
         }
       >
+        {envGtmId ? <GtmScript containerId={envGtmId} /> : null}
         <NextIntlClientProvider messages={messages} locale={locale}>
           <ThemeProvider>
             {children}

@@ -7,6 +7,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { PresenceHeartbeat } from "@/components/presence/presence-heartbeat";
 import { AmbientBackdrop } from "@/components/layout/ambient-backdrop";
+import { GtmAccountLoader } from "@/components/analytics/gtm-account-loader";
 
 // Auth-gated dashboard shell. Extracted from the layout so the layout
 // itself can stay a server component and export metadata (noindex) —
@@ -45,6 +46,7 @@ function DashboardShellInner({ children }: { children: React.ReactNode }) {
     <div className="relative flex h-screen overflow-hidden bg-transparent">
       <AmbientBackdrop />
       <PresenceHeartbeat />
+      <GtmAccountLoader />
       <Sidebar open={sidebarOpen} onClose={closeSidebar} />
       <div className="relative z-10 flex flex-1 flex-col overflow-hidden">
         <Header onOpenSidebar={() => setSidebarOpen(true)} />
