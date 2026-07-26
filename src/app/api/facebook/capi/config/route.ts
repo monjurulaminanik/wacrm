@@ -47,7 +47,7 @@ export async function GET() {
     const { data: config } = await supabase
       .from("facebook_capi_config")
       .select(
-        "pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, waba_id, page_id, last_error, last_event_at",
+        "pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, waba_id, page_id, page_associated, last_error, last_event_at",
       )
       .eq("account_id", accountId)
       .maybeSingle();
@@ -68,6 +68,7 @@ export async function GET() {
         config.send_qualified_lead_on_new_contact,
       waba_id: config.waba_id || "",
       page_id: config.page_id || "",
+      page_associated: Boolean(config.page_associated),
       last_error: config.last_error,
       last_event_at: config.last_event_at,
     });
@@ -275,7 +276,9 @@ export async function PUT() {
 
     const { data: config } = await supabase
       .from("facebook_capi_config")
-      .select("pixel_id, access_token, test_event_code, page_id, waba_id")
+      .select(
+        "pixel_id, access_token, test_event_code, page_id, waba_id, page_associated",
+      )
       .eq("account_id", accountId)
       .maybeSingle();
 
@@ -316,6 +319,19 @@ export async function PUT() {
       pageId = ms?.page_id?.trim() || null;
     }
 
+    // Persist resolved Page ID so Settings UI stays in sync with Messenger.
+    if (pageId && !(config.page_id as string | null)?.trim()) {
+      await supabase
+        .from("facebook_capi_config")
+        .update({
+          page_id: pageId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("account_id", accountId);
+    }
+
+    const pageAssociated = Boolean(config.page_associated);
+
     // Prefer Messenger when Page ID is present (common for CTM / RingGo Page ads);
     // otherwise WhatsApp when WABA is available.
     let channel: MessagingChannel | null = null;
@@ -342,7 +358,7 @@ export async function PUT() {
     // Look up a recent contact PSID; never send a synthetic/fake PSID.
     let realPsid: string | null = null;
     let realContactId: string | null = null;
-    if (channel === "messenger") {
+    if (channel === "messenger" && pageAssociated) {
       const { data: contact } = await supabase
         .from("contacts")
         .select("id, messenger_psid")
@@ -362,10 +378,33 @@ export async function PUT() {
     }
 
     let result;
-    let mode: "messenger" | "whatsapp" | "connectivity" | "lead_fallback" =
-      channel;
+    let mode:
+      | "messenger"
+      | "whatsapp"
+      | "connectivity"
+      | "lead_fallback"
+      | "lead_preferred" = channel;
 
-    if (channel === "messenger" && !realPsid) {
+    // Until Page↔Dataset is linked for messaging, default test to classic Lead
+    // so the UI shows success instead of the CTM association error.
+    if (!pageAssociated) {
+      mode = "lead_preferred";
+      result = await sendCapiConnectivityTest({
+        pixelId: config.pixel_id,
+        accessToken: token,
+        testEventCode: testCode,
+        eventId,
+        contactId: realContactId || `test-${accountId}`,
+        phone: "8801700000000",
+      });
+      if (result.ok) {
+        result = {
+          ...result,
+          usedLeadFallback: true,
+          messagingNote: CAPI_PAGE_DATASET_HINT_BN,
+        };
+      }
+    } else if (channel === "messenger" && !realPsid) {
       // No real conversation yet — connectivity check without PSID so Save/Test works.
       mode = "connectivity";
       result = await sendCapiConnectivityTest({
@@ -395,19 +434,27 @@ export async function PUT() {
       if (result.usedLeadFallback) mode = "lead_fallback";
     }
 
+    // Soft messaging notes must not become last_error when Lead succeeded.
     const errorText = result.ok
       ? null
       : enrichCapiErrorForUi(
           result.error || formatMetaCapiError(result.raw, "test failed"),
         ).slice(0, 500);
 
+    const patch: Record<string, unknown> = {
+      last_error: errorText,
+      updated_at: new Date().toISOString(),
+    };
+    if (result.ok) {
+      patch.last_event_at = new Date().toISOString();
+      if (result.mode === "business_messaging" && !result.usedLeadFallback) {
+        patch.page_associated = true;
+      }
+    }
+
     await supabase
       .from("facebook_capi_config")
-      .update({
-        last_event_at: result.ok ? new Date().toISOString() : undefined,
-        last_error: errorText,
-        updated_at: new Date().toISOString(),
-      })
+      .update(patch)
       .eq("account_id", accountId);
 
     if (!result.ok) {
@@ -417,10 +464,9 @@ export async function PUT() {
           error: errorText,
           channel,
           mode,
-          hint_bn:
-            channel === "messenger"
-              ? CAPI_PAGE_DATASET_HINT_BN
-              : undefined,
+          page_associated: pageAssociated,
+          hint_bn: CAPI_PAGE_DATASET_HINT_BN,
+          messaging_note: result.messagingNote,
           raw: result.raw,
         },
         { status: 200 },
@@ -433,14 +479,19 @@ export async function PUT() {
       event_id: eventId,
       channel,
       mode,
+      page_associated: Boolean(patch.page_associated) || pageAssociated,
       used_real_psid: Boolean(realPsid),
       used_lead_fallback: Boolean(result.usedLeadFallback),
+      // Soft note — success toast primary; this is secondary description only.
       hint_bn:
-        mode === "connectivity" || mode === "lead_fallback"
-          ? mode === "lead_fallback"
-            ? CAPI_PAGE_DATASET_HINT_BN
-            : CAPI_MESSENGER_PSID_HINT_BN
+        mode === "lead_preferred" ||
+        mode === "lead_fallback" ||
+        mode === "connectivity"
+          ? mode === "connectivity"
+            ? CAPI_MESSENGER_PSID_HINT_BN
+            : CAPI_PAGE_DATASET_HINT_BN
           : undefined,
+      messaging_note: result.messagingNote,
     });
   } catch (err) {
     console.error("[facebook/capi/config PUT]", err);

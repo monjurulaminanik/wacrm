@@ -57,6 +57,11 @@ export interface CapiSendResult {
   ok: boolean;
   eventsReceived?: number;
   error?: string;
+  /**
+   * Soft note when Lead path succeeded after messaging was skipped/rejected.
+   * Must not be treated as a hard failure in the UI.
+   */
+  messagingNote?: string;
   raw?: unknown;
   /** Set when business_messaging failed and classic Lead (other) succeeded. */
   usedLeadFallback?: boolean;
@@ -139,7 +144,7 @@ export const CAPI_MESSENGER_PSID_HINT_BN =
 
 /** Bangla hint when Page↔Dataset messaging association is blocked. */
 export const CAPI_PAGE_DATASET_HINT_BN =
-  "পেজে Review needed থাকলে messaging কানেক্ট হয় না — আগে BM-এ রিভিউ শেষ করুন; আপাতত CRM Lead (other) ব্যাকআপ পাঠায়";
+  "Dataset-এ Page লিংক নেই — Events Manager → Dataset 184670… → Settings → Linked data / Connected assets → Facebook Page যোগ করুন (RingGo / 821488…). আপাতত CRM Lead (other) পাঠায়";
 
 /**
  * True when Meta rejects business_messaging because Page/Dataset are not
@@ -150,6 +155,9 @@ export function isCapiMessagingAssociationError(
 ): boolean {
   if (!error) return false;
   return (
+    /no page associated to dataset/i.test(error) ||
+    /should have an associated page/i.test(error) ||
+    /dataset.*associated page|associated page.*dataset/i.test(error) ||
     /mismatching page and dataset/i.test(error) ||
     /dataset must have permission to log events for the page/i.test(error) ||
     /page_id.*matched|matched.*page_id/i.test(error) ||
@@ -435,14 +443,57 @@ export async function sendCapiLeadFallback(
   };
 }
 
+export type SendCapiEventWithFallbackInput = SendCapiEventInput & {
+  /**
+   * When true (Page not yet associated to dataset), skip business_messaging
+   * and send classic Lead first — avoids scary CTM association errors in UI.
+   */
+  preferLeadFirst?: boolean;
+};
+
 /**
  * Try business_messaging first; on Page/Dataset mismatch or invalid PSID,
  * fall back to classic Lead (action_source=other) with hashed identifiers.
  * Always falls back when Messenger PSID is missing/invalid (pre-check).
+ * When preferLeadFirst, skip messaging until Page↔Dataset is linked.
  */
 export async function sendCapiEventWithLeadFallback(
-  input: SendCapiEventInput,
+  input: SendCapiEventWithFallbackInput,
 ): Promise<CapiSendResult> {
+  if (input.preferLeadFirst) {
+    const fallback = await sendCapiLeadFallback({
+      pixelId: input.pixelId,
+      accessToken: input.accessToken,
+      testEventCode: input.testEventCode,
+      eventName: input.eventName,
+      eventId: input.eventId,
+      eventTime: input.eventTime,
+      contactId: input.user.contactId,
+      phone: input.user.phone,
+      email: input.user.email,
+      customData: input.customData,
+      actionSource: "other",
+    });
+    const note = enrichCapiErrorForUi(
+      "Messaging path deferred until Page is linked to this dataset in Events Manager.",
+    );
+    if (fallback.ok) {
+      return {
+        ...fallback,
+        usedLeadFallback: true,
+        messagingNote: note,
+      };
+    }
+    return {
+      ok: false,
+      error: fallback.error || "Lead event rejected by Meta",
+      messagingNote: note,
+      usedLeadFallback: true,
+      mode: "lead_fallback",
+      raw: fallback.raw,
+    };
+  }
+
   const canTryMessaging =
     input.channel !== "messenger" ||
     (Boolean(input.user.pageId?.trim()) &&
@@ -490,16 +541,24 @@ export async function sendCapiEventWithLeadFallback(
     return {
       ...fallback,
       usedLeadFallback: true,
+      // Soft note only — never surface as primary failure when Lead worked.
+      messagingNote: messagingError
+        ? enrichCapiErrorForUi(messagingError)
+        : undefined,
     };
   }
 
   return {
     ok: false,
+    // Lead failed too — keep Lead error primary; messaging note is secondary.
     error: enrichCapiErrorForUi(
-      messagingError ||
-        fallback.error ||
+      fallback.error ||
+        messagingError ||
         "Meta rejected both business_messaging and Lead fallback",
     ),
+    messagingNote: messagingError
+      ? enrichCapiErrorForUi(messagingError)
+      : undefined,
     usedLeadFallback: true,
     mode: "lead_fallback",
     raw: fallback.raw,
@@ -566,6 +625,8 @@ interface LoadedCapiConfig {
   sendQualifiedLeadOnNewContact: boolean;
   wabaId: string | null;
   pageId: string | null;
+  /** False until Meta accepts business_messaging once for this dataset. */
+  pageAssociated: boolean;
   configId: string;
 }
 
@@ -575,7 +636,7 @@ async function loadEnabledConfig(
   const { data, error } = await adminDb()
     .from("facebook_capi_config")
     .select(
-      "id, pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, waba_id, page_id",
+      "id, pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, waba_id, page_id, page_associated",
     )
     .eq("account_id", accountId)
     .maybeSingle();
@@ -600,6 +661,7 @@ async function loadEnabledConfig(
       data.send_qualified_lead_on_new_contact !== false,
     wabaId: data.waba_id,
     pageId: data.page_id,
+    pageAssociated: Boolean(data.page_associated),
   };
 }
 
@@ -677,11 +739,15 @@ async function markConfigResult(
   result: CapiSendResult,
 ): Promise<void> {
   const patch: Record<string, unknown> = {
+    // Never persist soft messaging notes as hard failures when Lead succeeded.
     last_error: result.ok ? null : (result.error || "unknown").slice(0, 500),
     updated_at: new Date().toISOString(),
   };
   if (result.ok) {
     patch.last_event_at = new Date().toISOString();
+    if (result.mode === "business_messaging" && !result.usedLeadFallback) {
+      patch.page_associated = true;
+    }
   }
   await adminDb().from("facebook_capi_config").update(patch).eq("id", configId);
 }
@@ -760,6 +826,7 @@ export async function fireCapiForInbound(
 
     const eventTime = params.eventTime ?? Math.floor(Date.now() / 1000);
     const results: CapiSendResult[] = [];
+    const preferLeadFirst = !cfg.pageAssociated;
 
     // New contact → QualifiedLead (Lead tag applied in CRM)
     if (params.wasCreated && cfg.sendQualifiedLeadOnNewContact) {
@@ -772,6 +839,7 @@ export async function fireCapiForInbound(
         eventTime,
         channel: params.channel,
         user,
+        preferLeadFirst,
       });
       results.push(r);
       if (!r.ok) console.error("[capi] QualifiedLead failed", r.error);
@@ -792,6 +860,7 @@ export async function fireCapiForInbound(
         eventTime,
         channel: params.channel,
         user,
+        preferLeadFirst,
       });
       results.push(r);
       if (!r.ok) console.error("[capi] LeadSubmitted failed", r.error);

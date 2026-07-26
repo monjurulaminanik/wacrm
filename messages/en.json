@@ -1568,6 +1568,8 @@
       "testOkConnectivity": "Token/dataset OK (connectivity test). Message the Page once for a real Messenger LeadSubmitted.",
       "testOkLeadFallback": "Lead event accepted (fallback). Ads still get a signal while Page↔Dataset messaging link is blocked.",
       "reviewNeededHint": "If the Page shows Review needed, messaging connect stays blocked — finish BM review first. Until then CRM sends Lead (action_source=other) as backup.",
+      "pageNotLinkedHint": "Messaging path deferred: this dataset has no Page linked yet. CRM sends Lead (other) until you link the Page in Events Manager.",
+      "linkPageHint": "Exact click: Meta Events Manager → open Dataset 1846704853380127 → Settings → Linked data (or Connected assets) → add Facebook Page 821488564371982 (RingGo / Messenger CRM). One Page per dataset. Until that shows, CRM Send test uses Lead (other) — not a hard failure.",
       "testFailed": "Test event failed",
       "disconnectConfirm": "Remove Facebook Conversion API credentials from this account?",
       "disconnected": "CAPI configuration removed",
@@ -1579,7 +1581,7 @@
       "howto3": "Link the Pixel/Dataset to the ad account that runs Facebook / WhatsApp / Messenger ads for your Page.",
       "howto4": "Paste Pixel ID + token, turn Enable on, Save (works even if test fails). Leave Test Event Code blank unless you pasted a real one from Events Manager, then Send test.",
       "howto5": "For Click-to-WhatsApp ads, Meta also needs ctwa_clid from ad clicks — the CRM stores it when present on inbound webhooks.",
-      "howto6": "If the Page shows Review needed, Messaging → Facebook Page stays unselectable. Open BM → Pages → Review needed and finish review / add people. Until then CRM falls back to classic Lead (other) so ads still get signals.",
+      "howto6": "For CTM messaging events: Events Manager → Dataset → Settings → Linked data → add your Facebook Page. Graph cannot do this without page_events on the app. Until linked, CRM prefers classic Lead (other).",
       "audienceNote": "Engaged contacts (people who messaged you) are stored for future Custom Audiences. CAPI LeadSubmitted / QualifiedLead events already improve Meta delivery and lower cost per result when the dataset is linked to your ad account — no Custom Audience sync required for the MVP."
     },
     "sections": {

@@ -291,17 +291,16 @@ const stats = {
         continue;
       }
 
-      if (!text) {
-        stats.messagesSkipped += 1;
-        continue;
-      }
+      // Graph often returns empty `message` for stickers/images — keep a
+      // placeholder so thread timestamps/previews stay aligned with Meta.
+      const bodyText = text || "[attachment]";
 
       const fromPage = m.from?.id === PAGE_ID;
       const { error: msgErr } = await sb.from("messages").insert({
         conversation_id: conversationId,
         sender_type: fromPage ? "agent" : "customer",
-        content_type: "text",
-        content_text: text,
+        content_type: text ? "text" : "text",
+        content_text: bodyText,
         message_id: m.id,
         status: "delivered",
         created_at: m.created_time || new Date().toISOString(),
@@ -313,7 +312,7 @@ const stats = {
       }
       stats.messagesImported += 1;
       if (!fromPage) newCustomer += 1;
-      lastText = text;
+      lastText = bodyText;
       lastAt = m.created_time || new Date().toISOString();
     }
 

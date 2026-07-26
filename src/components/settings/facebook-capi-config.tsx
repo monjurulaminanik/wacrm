@@ -48,6 +48,7 @@ export function FacebookCapiConfig() {
   const [pageId, setPageId] = useState('');
   const [lastError, setLastError] = useState<string | null>(null);
   const [lastEventAt, setLastEventAt] = useState<string | null>(null);
+  const [pageAssociated, setPageAssociated] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,6 +68,7 @@ export function FacebookCapiConfig() {
         setTestEventCode('');
         setLastError(null);
         setLastEventAt(null);
+        setPageAssociated(false);
         return;
       }
       setConfigured(true);
@@ -84,6 +86,7 @@ export function FacebookCapiConfig() {
       setSendQualified(data.send_qualified_lead_on_new_contact !== false);
       setWabaId(data.waba_id || '');
       setPageId(data.page_id || '');
+      setPageAssociated(Boolean(data.page_associated));
       setLastError(data.last_error || null);
       setLastEventAt(data.last_event_at || null);
     } catch {
@@ -157,9 +160,12 @@ export function FacebookCapiConfig() {
           toast.success(t('testOkConnectivity'), {
             description: payload.hint_bn || t('testPsidHint'),
           });
-        } else if (payload.mode === 'lead_fallback') {
+        } else if (
+          payload.mode === 'lead_fallback' ||
+          payload.mode === 'lead_preferred'
+        ) {
           toast.success(t('testOkLeadFallback'), {
-            description: payload.hint_bn || t('reviewNeededHint'),
+            description: payload.hint_bn || t('linkPageHint'),
           });
         } else {
           toast.success(t('testOk'));
@@ -217,6 +223,11 @@ export function FacebookCapiConfig() {
                   date: new Date(lastEventAt).toLocaleString(),
                 })
               : t('noEventsYet')}
+            {!pageAssociated && configured ? (
+              <span className="mt-1 block text-amber-600 dark:text-amber-400">
+                {t('pageNotLinkedHint')}
+              </span>
+            ) : null}
             {lastError ? (
               <span className="mt-1 block text-red-400">{lastError}</span>
             ) : null}
@@ -372,7 +383,7 @@ export function FacebookCapiConfig() {
           </ol>
           <p className="mt-4 text-sm text-muted-foreground">{t('audienceNote')}</p>
           <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
-            {t('reviewNeededHint')}
+            {t('linkPageHint')}
           </p>
         </CardContent>
       </Card>

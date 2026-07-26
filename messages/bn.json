@@ -188,6 +188,8 @@
       "testOkConnectivity": "টোকেন/Dataset ঠিক আছে (কানেক্টিভিটি টেস্ট)। পুরো Messenger LeadSubmitted দেখতে আগে পেজে একটা মেসেজ পাঠান।",
       "testOkLeadFallback": "Lead ইভেন্ট গেছে (ব্যাকআপ)। Messaging Page-Dataset লিংক ব্লক থাকলেও অ্যাড সিগন্যাল পায়।",
       "reviewNeededHint": "পেজে Review needed থাকলে messaging কানেক্ট হয় না — আগে BM-এ রিভিউ শেষ করুন। আপাতত CRM Lead (other) ব্যাকআপ পাঠায়।",
+      "pageNotLinkedHint": "Messaging পথ এখন বন্ধ: এই Dataset-এ Page লিংক নেই। Events Manager-এ Page যোগ না করা পর্যন্ত CRM Lead (other) পাঠায়।",
+      "linkPageHint": "ঠিক ক্লিক: Meta Events Manager → Dataset 1846704853380127 খুলুন → Settings → Linked data (বা Connected assets) → Facebook Page 821488564371982 (RingGo / Messenger CRM) যোগ করুন। এক Page = এক Dataset। লিংক না দেখা পর্যন্ত CRM টেস্ট Lead (other) পাঠায় — এটা ফেইল নয়।",
       "testFailed": "টেস্ট ইভেন্ট ব্যর্থ",
       "disconnectConfirm": "এই অ্যাকাউন্ট থেকে Facebook CAPI ক্রেডেনশিয়াল মুছবেন?",
       "disconnected": "CAPI কনফিগ সরানো হয়েছে",
@@ -199,7 +201,7 @@
       "howto3": "যে অ্যাড অ্যাকাউন্ট দিয়ে পেজের অ্যাড চালাবেন, সেখানে Pixel/Dataset লিংক করুন।",
       "howto4": "Pixel ID + টোকেন পেস্ট করুন, Enable চালু করে Save করুন (টেস্ট ফেল করলেও Save হয়)। Test Event Code খালি রাখুন বা Events Manager-এর আসল কোড দিন, তারপর Send test।",
       "howto5": "Click-to-WhatsApp অ্যাডের জন্য ctwa_clid ওয়েবহুকে এলে CRM সেভ করে।",
-      "howto6": "পেজে Review needed থাকলে Messaging → Facebook Page সিলেক্ট করা যায় না। BM → Pages → Review needed খুলে রিভিউ/লোক Add করুন। আগে ঠিক না হলে CRM Lead (other) ব্যাকআপ দিয়ে অ্যাড সিগন্যাল পাঠায়।",
+      "howto6": "CTM messaging-এর জন্য: Events Manager → Dataset → Settings → Linked data → Facebook Page যোগ করুন। App-এ page_events না থাকলে Graph দিয়ে লিংক হয় না। লিংক না হওয়া পর্যন্ত CRM Lead (other) পাঠায়।",
       "audienceNote": "যারা মেসেজ করেছে তাদের এনগেজমেন্ট সেভ হয় (পরে Custom Audience)। CAPI LeadSubmitted/QualifiedLead ইভেন্টই Meta ডেলিভারি উন্নত করে — MVP-তে আলাদা অডিয়েন্স সিঙ্ক লাগে না।"
     }
   }

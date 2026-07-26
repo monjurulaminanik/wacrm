@@ -55,6 +55,14 @@ describe("isValidMessengerPsid", () => {
 });
 
 describe("isCapiMessagingAssociationError", () => {
+  it("detects no Page associated to dataset", () => {
+    expect(
+      isCapiMessagingAssociationError(
+        "Messaging event no Page associated to dataset: For CTM and CTWA events, the dataset ID used to send events to CAPI should have an associated Page",
+      ),
+    ).toBe(true);
+  });
+
   it("detects page/dataset mismatch", () => {
     expect(
       isCapiMessagingAssociationError(
