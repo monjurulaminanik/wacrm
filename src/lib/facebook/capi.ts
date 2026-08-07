@@ -623,6 +623,8 @@ interface LoadedCapiConfig {
   testEventCode: string | null;
   sendLeadOnFirstMessage: boolean;
   sendQualifiedLeadOnNewContact: boolean;
+  /** When true, send ViewContent on every subsequent inbound message. */
+  sendViewContentOnEveryMessage: boolean;
   wabaId: string | null;
   pageId: string | null;
   /** False until Meta accepts business_messaging once for this dataset. */
@@ -636,7 +638,7 @@ async function loadEnabledConfig(
   const { data, error } = await adminDb()
     .from("facebook_capi_config")
     .select(
-      "id, pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, waba_id, page_id, page_associated",
+      "id, pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, send_view_content_on_every_message, waba_id, page_id, page_associated",
     )
     .eq("account_id", accountId)
     .maybeSingle();
@@ -659,6 +661,11 @@ async function loadEnabledConfig(
     sendLeadOnFirstMessage: data.send_lead_on_first_message !== false,
     sendQualifiedLeadOnNewContact:
       data.send_qualified_lead_on_new_contact !== false,
+    // Default true — migration 043 adds this column with DEFAULT true, but a
+    // row inserted before the migration would return null here, so treat null
+    // as true so existing installs start sending ViewContent immediately.
+    sendViewContentOnEveryMessage:
+      data.send_view_content_on_every_message !== false,
     wabaId: data.waba_id,
     pageId: data.page_id,
     pageAssociated: Boolean(data.page_associated),
@@ -767,6 +774,12 @@ export interface FireCapiInboundParams {
   /** True when this is the contact's first inbound customer message */
   isFirstInbound: boolean;
   eventTime?: number;
+  /**
+   * The text content of the inbound message (or a label like "[image]").
+   * Sent as custom_data.content_name on ViewContent events so Meta can
+   * use the message intent to improve ad delivery.
+   */
+  messageText?: string | null;
 }
 
 /**
@@ -869,15 +882,44 @@ export async function fireCapiForInbound(
       }
     }
 
-    // Subsequent messages: still useful as ViewContent for engagement signal
-    // when neither first-inbound nor new-contact fired.
+    // Subsequent messages → ViewContent (engagement signal for every chat turn).
+    // Meta uses ViewContent to understand who is actively engaged and what they
+    // are talking about, which feeds lookalike audiences and ad optimisation.
+    // Even routine messages ("ami hisu korbo", "price koto?") are valuable
+    // because they tell Meta this person is a real, active lead.
     if (
       !params.isFirstInbound &&
       !params.wasCreated &&
-      results.length === 0
+      results.length === 0 &&
+      cfg.sendViewContentOnEveryMessage
     ) {
-      // No-op for routine chatter — avoid flooding Meta with every message.
-      // Engagement row above is enough for Custom Audience sync later.
+      const customData: Record<string, unknown> = {};
+      // Include sanitised message text so Meta can infer intent / topic.
+      // Truncate to 255 chars — CAPI custom_data string limit.
+      const msgText = params.messageText?.trim();
+      if (msgText) {
+        customData.content_name = msgText.slice(0, 255);
+      }
+      customData.content_category = "message";
+      customData.channel = params.channel;
+
+      const r = await sendCapiEventWithLeadFallback({
+        pixelId: cfg.pixelId,
+        accessToken: cfg.accessToken,
+        testEventCode: cfg.testEventCode,
+        eventName: "ViewContent",
+        // Dedupe by message id so Meta retries never double-count.
+        eventId: `vc_${params.messageId}`,
+        eventTime,
+        channel: params.channel,
+        user,
+        preferLeadFirst,
+        customData,
+      });
+      results.push(r);
+      if (!r.ok) {
+        console.error("[capi] ViewContent failed", r.error);
+      }
     }
 
     const last = results[results.length - 1];

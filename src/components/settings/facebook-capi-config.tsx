@@ -44,6 +44,7 @@ export function FacebookCapiConfig() {
   const [testEventCode, setTestEventCode] = useState('');
   const [sendLead, setSendLead] = useState(true);
   const [sendQualified, setSendQualified] = useState(true);
+  const [sendViewContent, setSendViewContent] = useState(true);
   const [wabaId, setWabaId] = useState('');
   const [pageId, setPageId] = useState('');
   const [lastError, setLastError] = useState<string | null>(null);
@@ -84,6 +85,7 @@ export function FacebookCapiConfig() {
       );
       setSendLead(data.send_lead_on_first_message !== false);
       setSendQualified(data.send_qualified_lead_on_new_contact !== false);
+      setSendViewContent(data.send_view_content_on_every_message !== false);
       setWabaId(data.waba_id || '');
       setPageId(data.page_id || '');
       setPageAssociated(Boolean(data.page_associated));
@@ -128,6 +130,7 @@ export function FacebookCapiConfig() {
           enabled,
           send_lead_on_first_message: sendLead,
           send_qualified_lead_on_new_contact: sendQualified,
+          send_view_content_on_every_message: sendViewContent,
           waba_id: wabaId.trim() || null,
           page_id: pageId.trim() || null,
         }),
@@ -342,6 +345,15 @@ export function FacebookCapiConfig() {
                 </p>
               </div>
               <Switch checked={sendQualified} onCheckedChange={setSendQualified} />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm">{t('eventViewContent')}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t('eventViewContentHint')}
+                </p>
+              </div>
+              <Switch checked={sendViewContent} onCheckedChange={setSendViewContent} />
             </div>
           </div>
 

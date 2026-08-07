@@ -178,6 +178,8 @@
       "eventLeadHint": "নতুন কথোপকথন / লিডের জন্য Meta স্ট্যান্ডার্ড।",
       "eventQualified": "নতুন কন্টাক্টে QualifiedLead",
       "eventQualifiedHint": "CRM কন্টাক্ট তৈরি করে Lead ট্যাগ লাগালে।",
+      "eventViewContent": "প্রতিটা মেসেজে ViewContent",
+      "eventViewContentHint": "প্রতিটা ইনবাউন্ড মেসেজে ViewContent ইভেন্ট পাঠায় — শুধু প্রথম মেসেজ না, পুরো কথোপকথন থেকে Meta শেখে। মেসেজের টেক্সটও custom_data হিসেবে যায়, তাই Pixel বুঝতে পারে কেউ কী চাইছে।",
       "save": "সেভ করুন",
       "sendTest": "টেস্ট ইভেন্ট পাঠান",
       "disconnect": "কনফিগ সরিয়ে দিন",

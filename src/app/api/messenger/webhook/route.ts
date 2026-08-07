@@ -369,6 +369,8 @@ async function processMessengerWebhook(body: {
         eventTime: event.timestamp
           ? Math.floor(event.timestamp / 1000)
           : undefined,
+        // Pass message text so ViewContent custom_data carries intent/topic.
+        messageText: text || null,
       }).catch((err) =>
         console.error("[messenger/webhook] capi fail-open", err),
       );

@@ -1557,6 +1557,8 @@
       "eventLeadHint": "Meta business-messaging standard for a new conversation / lead.",
       "eventQualified": "QualifiedLead on new contact",
       "eventQualifiedHint": "When the CRM auto-creates a contact and applies the Lead tag.",
+      "eventViewContent": "ViewContent on every message",
+      "eventViewContentHint": "Send a ViewContent event for each inbound message so Meta learns from the full conversation, not just the first touch. Message text is included as custom_data so the Pixel understands intent.",
       "save": "Save configuration",
       "sendTest": "Send test event",
       "disconnect": "Remove configuration",

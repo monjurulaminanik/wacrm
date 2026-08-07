@@ -852,6 +852,8 @@ async function processMessage(
     wasCreated: contactOutcome.wasCreated,
     isFirstInbound: isFirstInboundMessage,
     eventTime: parseInt(message.timestamp, 10) || undefined,
+    // Pass message text so ViewContent custom_data carries intent/topic.
+    messageText: contentText || (message.type !== 'text' ? `[${message.type}]` : null),
   })
 }
 

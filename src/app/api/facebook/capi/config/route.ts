@@ -47,7 +47,7 @@ export async function GET() {
     const { data: config } = await supabase
       .from("facebook_capi_config")
       .select(
-        "pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, waba_id, page_id, page_associated, last_error, last_event_at",
+        "pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, send_view_content_on_every_message, waba_id, page_id, page_associated, last_error, last_event_at",
       )
       .eq("account_id", accountId)
       .maybeSingle();
@@ -66,6 +66,8 @@ export async function GET() {
       send_lead_on_first_message: config.send_lead_on_first_message,
       send_qualified_lead_on_new_contact:
         config.send_qualified_lead_on_new_contact,
+      send_view_content_on_every_message:
+        config.send_view_content_on_every_message !== false,
       waba_id: config.waba_id || "",
       page_id: config.page_id || "",
       page_associated: Boolean(config.page_associated),
@@ -105,6 +107,7 @@ export async function POST(request: Request) {
       enabled,
       send_lead_on_first_message,
       send_qualified_lead_on_new_contact,
+      send_view_content_on_every_message,
       waba_id,
       page_id,
       clear_token,
@@ -115,6 +118,7 @@ export async function POST(request: Request) {
       enabled?: boolean;
       send_lead_on_first_message?: boolean;
       send_qualified_lead_on_new_contact?: boolean;
+      send_view_content_on_every_message?: boolean;
       waba_id?: string | null;
       page_id?: string | null;
       clear_token?: boolean;
@@ -175,6 +179,10 @@ export async function POST(request: Request) {
       send_qualified_lead_on_new_contact:
         send_qualified_lead_on_new_contact !== undefined
           ? Boolean(send_qualified_lead_on_new_contact)
+          : true,
+      send_view_content_on_every_message:
+        send_view_content_on_every_message !== undefined
+          ? Boolean(send_view_content_on_every_message)
           : true,
       waba_id: waba_id?.trim() || null,
       page_id: page_id?.trim() || null,
