@@ -15,7 +15,7 @@ import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
 import { decrypt } from "@/lib/whatsapp/encryption";
 
-const META_API_VERSION = "v21.0";
+const META_API_VERSION = "v26.0";
 const PARTNER_AGENT = "DawatLeadCRM";
 
 export type MessagingChannel = "whatsapp" | "messenger";

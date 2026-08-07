@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { requireRole, toErrorResponse } from "@/lib/auth/account";
 import { encrypt, decrypt } from "@/lib/whatsapp/encryption";
 import {
   CAPI_MESSENGER_PSID_HINT_BN,
@@ -13,44 +15,129 @@ import {
   type MessagingChannel,
 } from "@/lib/facebook/capi";
 
-async function resolveAccountId(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
-): Promise<string | null> {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("account_id")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (error || !data?.account_id) return null;
-  return data.account_id as string;
+// Config writes are account-scoped. The caller is checked with requireRole
+// first, then the service-role client is used for the actual row write. This
+// avoids a confusing RLS failure when the account context is valid but the
+// browser session's claims/schema cache are stale.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let _adminClient: any = null;
+function supabaseAdmin() {
+  if (!_adminClient) {
+    _adminClient = createAdminClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    );
+  }
+  return _adminClient;
 }
 
 const MASK = "••••••••••••••••";
 
+type DbError = { code?: string; message?: string; details?: string };
+
+function isMissingSchemaError(error: DbError | null | undefined): boolean {
+  const message = error?.message || "";
+  return (
+    error?.code === "42P01" ||
+    error?.code === "42703" ||
+    error?.code === "PGRST204" ||
+    /column .* does not exist|relation .* does not exist|schema cache/i.test(
+      message,
+    )
+  );
+}
+
+function configDbError(error: DbError, action: string): string {
+  if (isMissingSchemaError(error)) {
+    return `Facebook CAPI database schema is incomplete. Apply supabase/migrations/039_facebook_capi.sql through 043_facebook_capi_view_content.sql, then retry ${action}.`;
+  }
+  if (error.code === "42501") {
+    return "You need an account owner/admin role to change Facebook CAPI settings.";
+  }
+  return error.message
+    ? `Failed to ${action}: ${error.message}`
+    : `Failed to ${action}.`;
+}
+
+/**
+ * 043 added ViewContent and 041 added page_associated. Keep older installs
+ * usable while their migrations are being applied: read the core 039 shape
+ * and use safe defaults for the newer flags.
+ */
+async function readConfig(db: ReturnType<typeof supabaseAdmin>, accountId: string) {
+  const full = await db
+    .from("facebook_capi_config")
+    .select(
+      "id, pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, send_view_content_on_every_message, waba_id, page_id, page_associated, last_error, last_event_at",
+    )
+    .eq("account_id", accountId)
+    .maybeSingle();
+
+  if (!full.error || !isMissingSchemaError(full.error)) return full;
+
+  return db
+    .from("facebook_capi_config")
+    .select(
+      "id, pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, waba_id, page_id, last_error, last_event_at",
+    )
+    .eq("account_id", accountId)
+    .maybeSingle();
+}
+
+async function writeConfig(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  row: Record<string, unknown>,
+  existing: boolean,
+) {
+  const first = existing
+    ? await db.from("facebook_capi_config").update(row).eq("account_id", accountId)
+    : await db.from("facebook_capi_config").insert(row);
+
+  // A partially migrated install can still save the core credentials and
+  // flags. Retry without the newer optional column instead of losing the
+  // entire Pixel/token save.
+  if (first.error && isMissingSchemaError(first.error) && "send_view_content_on_every_message" in row) {
+    const legacyRow = { ...row };
+    delete legacyRow.send_view_content_on_every_message;
+    return existing
+      ? db.from("facebook_capi_config").update(legacyRow).eq("account_id", accountId)
+      : db.from("facebook_capi_config").insert(legacyRow);
+  }
+  return first;
+}
+
+async function updateConfig(
+  db: ReturnType<typeof supabaseAdmin>,
+  accountId: string,
+  patch: Record<string, unknown>,
+) {
+  const first = await db
+    .from("facebook_capi_config")
+    .update(patch)
+    .eq("account_id", accountId);
+  if (first.error && isMissingSchemaError(first.error) && "page_associated" in patch) {
+    const legacyPatch = { ...patch };
+    delete legacyPatch.page_associated;
+    return db
+      .from("facebook_capi_config")
+      .update(legacyPatch)
+      .eq("account_id", accountId);
+  }
+  return first;
+}
+
 export async function GET() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { accountId } = await requireRole("admin");
+    const { data: config, error } = await readConfig(supabaseAdmin(), accountId);
+    if (error) {
+      console.error("[facebook/capi/config GET] database", error);
+      return NextResponse.json(
+        { error: configDbError(error, "load configuration") },
+        { status: 500 },
+      );
     }
-
-    const accountId = await resolveAccountId(supabase, user.id);
-    if (!accountId) {
-      return NextResponse.json({ configured: false }, { status: 200 });
-    }
-
-    const { data: config } = await supabase
-      .from("facebook_capi_config")
-      .select(
-        "pixel_id, access_token, test_event_code, enabled, send_lead_on_first_message, send_qualified_lead_on_new_contact, send_view_content_on_every_message, waba_id, page_id, page_associated, last_error, last_event_at",
-      )
-      .eq("account_id", accountId)
-      .maybeSingle();
 
     if (!config) {
       return NextResponse.json({ configured: false }, { status: 200 });
@@ -75,6 +162,9 @@ export async function GET() {
       last_event_at: config.last_event_at,
     });
   } catch (err) {
+    if (err instanceof Error && (err.name === "UnauthorizedError" || err.name === "ForbiddenError")) {
+      return toErrorResponse(err);
+    }
     console.error("[facebook/capi/config GET]", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
@@ -82,22 +172,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const accountId = await resolveAccountId(supabase, user.id);
-    if (!accountId) {
-      return NextResponse.json(
-        { error: "Your profile is not linked to an account." },
-        { status: 403 },
-      );
-    }
+    const { accountId, userId } = await requireRole("admin");
+    const db = supabaseAdmin();
 
     const body = await request.json();
     const {
@@ -132,11 +208,18 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: existing } = await supabase
+    const { data: existing, error: existingError } = await db
       .from("facebook_capi_config")
       .select("id, access_token")
       .eq("account_id", accountId)
       .maybeSingle();
+    if (existingError) {
+      console.error("[facebook/capi/config] existing row", existingError);
+      return NextResponse.json(
+        { error: configDbError(existingError, "save configuration") },
+        { status: 500 },
+      );
+    }
 
     let encryptedAccess: string | undefined;
     const tokenIncoming =
@@ -166,7 +249,7 @@ export async function POST(request: Request) {
     }
 
     const row: Record<string, unknown> = {
-      user_id: user.id,
+      user_id: userId,
       account_id: accountId,
       pixel_id: pixelId,
       // Drop UI placeholders like TEST12345 — never persist fakes.
@@ -194,14 +277,11 @@ export async function POST(request: Request) {
     }
 
     if (existing) {
-      const { error } = await supabase
-        .from("facebook_capi_config")
-        .update(row)
-        .eq("account_id", accountId);
+      const { error } = await writeConfig(db, accountId, row, true);
       if (error) {
         console.error("[facebook/capi/config] update", error);
         return NextResponse.json(
-          { error: "Failed to update configuration" },
+          { error: configDbError(error, "update configuration") },
           { status: 500 },
         );
       }
@@ -213,11 +293,11 @@ export async function POST(request: Request) {
         );
       }
       row.access_token = encryptedAccess;
-      const { error } = await supabase.from("facebook_capi_config").insert(row);
+      const { error } = await writeConfig(db, accountId, row, false);
       if (error) {
         console.error("[facebook/capi/config] insert", error);
         return NextResponse.json(
-          { error: "Failed to save configuration" },
+          { error: configDbError(error, "save configuration") },
           { status: 500 },
         );
       }
@@ -225,6 +305,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    if (err instanceof Error && (err.name === "UnauthorizedError" || err.name === "ForbiddenError")) {
+      return toErrorResponse(err);
+    }
     console.error("[facebook/capi/config POST]", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
@@ -232,30 +315,24 @@ export async function POST(request: Request) {
 
 export async function DELETE() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { accountId } = await requireRole("admin");
 
-    const accountId = await resolveAccountId(supabase, user.id);
-    if (!accountId) {
-      return NextResponse.json({ error: "No account" }, { status: 403 });
-    }
-
-    const { error } = await supabase
+    const { error } = await supabaseAdmin()
       .from("facebook_capi_config")
       .delete()
       .eq("account_id", accountId);
 
     if (error) {
-      return NextResponse.json({ error: "Failed to delete" }, { status: 500 });
+      return NextResponse.json(
+        { error: configDbError(error, "delete configuration") },
+        { status: 500 },
+      );
     }
     return NextResponse.json({ success: true });
   } catch (err) {
+    if (err instanceof Error && (err.name === "UnauthorizedError" || err.name === "ForbiddenError")) {
+      return toErrorResponse(err);
+    }
     console.error("[facebook/capi/config DELETE]", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
@@ -268,27 +345,16 @@ export async function DELETE() {
  */
 export async function PUT() {
   try {
-    const supabase = await createClient();
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-    if (authError || !user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { accountId } = await requireRole("admin");
+    const db = supabaseAdmin();
 
-    const accountId = await resolveAccountId(supabase, user.id);
-    if (!accountId) {
-      return NextResponse.json({ error: "No account" }, { status: 403 });
+    const { data: config, error: configError } = await readConfig(db, accountId);
+    if (configError) {
+      return NextResponse.json(
+        { error: configDbError(configError, "send test") },
+        { status: 500 },
+      );
     }
-
-    const { data: config } = await supabase
-      .from("facebook_capi_config")
-      .select(
-        "pixel_id, access_token, test_event_code, page_id, waba_id, page_associated",
-      )
-      .eq("account_id", accountId)
-      .maybeSingle();
 
     if (!config?.access_token || !config.pixel_id) {
       return NextResponse.json(
@@ -311,7 +377,7 @@ export async function PUT() {
     let pageId = (config.page_id as string | null)?.trim() || null;
 
     if (!wabaId) {
-      const { data: wa } = await supabase
+      const { data: wa } = await db
         .from("whatsapp_config")
         .select("waba_id")
         .eq("account_id", accountId)
@@ -319,7 +385,7 @@ export async function PUT() {
       wabaId = wa?.waba_id?.trim() || null;
     }
     if (!pageId) {
-      const { data: ms } = await supabase
+      const { data: ms } = await db
         .from("messenger_config")
         .select("page_id")
         .eq("account_id", accountId)
@@ -329,13 +395,10 @@ export async function PUT() {
 
     // Persist resolved Page ID so Settings UI stays in sync with Messenger.
     if (pageId && !(config.page_id as string | null)?.trim()) {
-      await supabase
-        .from("facebook_capi_config")
-        .update({
-          page_id: pageId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("account_id", accountId);
+      await updateConfig(db, accountId, {
+        page_id: pageId,
+        updated_at: new Date().toISOString(),
+      });
     }
 
     const pageAssociated = Boolean(config.page_associated);
@@ -349,13 +412,10 @@ export async function PUT() {
     if (!channel) {
       const msg =
         "Fill Page ID (Messenger) or WABA ID (WhatsApp) before Send test — Meta rejects business_messaging events without the channel id.";
-      await supabase
-        .from("facebook_capi_config")
-        .update({
+      await updateConfig(db, accountId, {
           last_error: msg.slice(0, 500),
           updated_at: new Date().toISOString(),
-        })
-        .eq("account_id", accountId);
+        });
       return NextResponse.json({ ok: false, error: msg }, { status: 200 });
     }
 
@@ -367,7 +427,7 @@ export async function PUT() {
     let realPsid: string | null = null;
     let realContactId: string | null = null;
     if (channel === "messenger" && pageAssociated) {
-      const { data: contact } = await supabase
+      const { data: contact } = await db
         .from("contacts")
         .select("id, messenger_psid")
         .eq("account_id", accountId)
@@ -376,8 +436,9 @@ export async function PUT() {
         .order("updated_at", { ascending: false })
         .limit(20);
 
-      const match = (contact || []).find((c) =>
-        isValidMessengerPsid(c.messenger_psid as string),
+      const match = (contact || []).find(
+        (c: { id: string; messenger_psid: string | null }) =>
+          isValidMessengerPsid(c.messenger_psid),
       );
       if (match) {
         realPsid = String(match.messenger_psid).trim();
@@ -460,10 +521,7 @@ export async function PUT() {
       }
     }
 
-    await supabase
-      .from("facebook_capi_config")
-      .update(patch)
-      .eq("account_id", accountId);
+    await updateConfig(db, accountId, patch);
 
     if (!result.ok) {
       return NextResponse.json(
@@ -502,6 +560,9 @@ export async function PUT() {
       messaging_note: result.messagingNote,
     });
   } catch (err) {
+    if (err instanceof Error && (err.name === "UnauthorizedError" || err.name === "ForbiddenError")) {
+      return toErrorResponse(err);
+    }
     console.error("[facebook/capi/config PUT]", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }

@@ -1,0 +1,1 @@
+- [Meta CAPI messaging behavior](meta-capi-messaging.md) — Page/Dataset association and real Messenger PSIDs are required for business-messaging events; classic Lead fallback preserves attribution until linked.

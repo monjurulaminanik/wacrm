@@ -1,0 +1,33 @@
+ay khan a,, crud hoi na,, pixel and capi gula save hoi na,,fix,,koro jeno save hoi,,and capi and pixel gula jeno working hoi jeno
+
+6 minutes ago
+আমি Facebook Ads সেটিংসের CRUD flow, API route, এবং event tracking wiring একসাথে দেখে সমস্যাটা ধরছি। আগে save/load কোথায় ভাঙছে সেটা খুঁজে তারপর ছোট, নিরাপদ fix দেব—কোডে থাকা বর্তমান Supabase কাঠামোই ব্যবহার করব।
+
+
+Show less
+
+Read .agents/memory/MEMORY.md
+
+Found files
+
+Opened replit.md
+Inspecting components for diagnosis
+
+Inspecting components for diagnosis
+এখন মূল চারটি জায়গা মিলিয়ে দেখছি: settings form, config API, encryption/decryption, আর inbound webhook থেকে CAPI event পাঠানো। এতে শুধু “save” toast নয়—সত্যিই DB-তে থাকা config দিয়ে Meta-তে event যাচ্ছে কি না, দুটোই নিশ্চিত করা যাবে।
+
+
+13 actions
+প্রাথমিকভাবে একটি গুরুত্বপূর্ণ সমস্যা ধরা পড়েছে: config API GET-এ database error গোপন করে “configured: false” দেখায়, আর save/update-এর ক্ষেত্রে schema বা permission সমস্যা হলে শুধু generic error আসে। এখন role/auth helper এবং migration compatibility মিলিয়ে এমন fix করছি যাতে config সত্যিই account-scoped ভাবে save হয়, token নিরাপদে encrypted থাকে, আর Meta event-এর failure স্পষ্টভাবে দেখা যায়।
+
+
+25 actions
+কোডে আরেকটি বাস্তব কারণও আছে: CAPI route-টি browser session-এর RLS দিয়ে save করছে, তাই account role/schema-cache/migration mismatch হলে save ব্যর্থ হলেও UI-তে শুধু generic error আসে। আমি save/delete/test route-কে server-side account authorization-এর পরে service-role DB client দিয়ে চালাব, DB error UI-তে বোঝার মতো করে দেখাব, এবং Meta endpoint version-টাও বর্তমান supported version-এ আনব—তাতে Pixel/CAPI config এবং event delivery দুটোই স্থির হবে।
+
+
+3 actions
+
+Searched the web for "Meta Graph API Conversions API current version events endpoint 2026 official documentation"
+
+10 actions
+এখন fix লাগাচ্ছি। এতে তিনটি জিনিস হবে: (১) শুধু admin/owner-ই account config বদলাতে পারবে কিন্তু save RLS-এ আটকে থাকবে না, (২) পুরনো Supabase migration থাকলেও optional CAPI columns-এর জন্য পুরো save ভাঙবে না, (৩) Meta CAPI calls-এর Graph version v26-এ যাবে এবং inbound webhook-ও একই saved config ব্যবহার করবে।
